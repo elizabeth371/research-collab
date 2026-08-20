@@ -1,0 +1,852 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>智溯系统 · 代码启蒙讲义（幼儿园版）</title>
+<style>
+  :root {
+    --bg: #faf7f2; --surface: #ffffff; --border: #eadfc9; --text: #3a342a;
+    --text2: #6b6253; --text3: #9a917e;
+    --red: #d4563f; --red-bg: #fdeeea; --blue: #2f7bbf; --blue-bg: #e8f2fb;
+    --green: #3f8f4f; --green-bg: #e9f5eb; --amber: #c07f1a; --amber-bg: #fdf3e0;
+    --purple: #7a5fc7; --purple-bg: #f0ebfc; --pink: #d4547a; --pink-bg: #fdeaf0;
+    --code-bg: #f5f0e6; --mono: "SFMono-Regular", Consolas, Menlo, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: -apple-system, "Segoe UI", "Microsoft YaHei", "PingFang SC", sans-serif; line-height: 2.0; font-size: 16px; }
+  .container { max-width: 980px; margin: 0 auto; padding: 24px 26px 90px; }
+
+  .hero { background: linear-gradient(135deg, #f2a33c 0%, #f25c54 55%, #d4547a 100%); color: #fff; border-radius: 20px; padding: 38px 40px; margin-bottom: 24px; box-shadow: 0 4px 0 rgba(0,0,0,.06); }
+  .hero h1 { font-size: 28px; font-weight: 800; letter-spacing: 1px; }
+  .hero p { margin-top: 10px; font-size: 15px; opacity: .95; line-height: 1.9; }
+  .hero .tags { margin-top: 14px; display: flex; flex-wrap: wrap; gap: 8px; }
+  .hero .tags span { background: rgba(255,255,255,.22); border: 1px solid rgba(255,255,255,.35); padding: 3px 12px; border-radius: 999px; font-size: 12.5px; }
+
+  .toc { background: var(--surface); border: 2px solid var(--border); border-radius: 16px; padding: 20px 26px; margin-bottom: 24px; }
+  .toc h2 { font-size: 17px; margin-bottom: 12px; color: var(--purple); }
+  .toc ol { padding-left: 22px; columns: 2; column-gap: 34px; }
+  .toc li { margin: 5px 0; font-size: 14px; break-inside: avoid; }
+  .toc a { color: var(--text2); text-decoration: none; }
+  .toc a:hover { color: var(--purple); text-decoration: underline; }
+
+  section { background: var(--surface); border: 2px solid var(--border); border-radius: 16px; padding: 26px 30px; margin-bottom: 24px; }
+  h2.lesson { font-size: 22px; color: var(--purple); border-bottom: 3px solid var(--purple-bg); padding-bottom: 10px; margin-bottom: 18px; }
+  h3 { font-size: 17.5px; color: var(--green); margin: 26px 0 10px; }
+  h4 { font-size: 15.5px; color: var(--blue); margin: 18px 0 8px; }
+  p { margin: 10px 0; }
+  ul, ol { margin: 8px 0 8px 28px; }
+  li { margin: 7px 0; }
+  strong { color: var(--text); }
+  .hl { background: #fff3bf; padding: 0 4px; border-radius: 3px; }
+  code { font-family: var(--mono); font-size: 13.5px; background: var(--code-bg); padding: 2px 6px; border-radius: 4px; color: #8a3a8a; }
+  pre { background: #20242e; color: #e2e8f0; border-radius: 12px; padding: 16px 18px; overflow-x: auto; font-size: 13.5px; line-height: 1.7; margin: 12px 0; }
+  pre code { background: none; color: inherit; padding: 0; font-size: 13.5px; }
+  .kw { color: #8aa9d6; } .fn { color: #7fd1c8; } .st { color: #a8d08d; } .cm { color: #6d7890; font-style: italic; } .num { color: #d9a0c9; }
+  table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 14px; }
+  th { background: var(--purple-bg); color: var(--purple); text-align: left; padding: 8px 12px; border: 1px solid var(--border); font-weight: 600; }
+  td { padding: 8px 12px; border: 1px solid var(--border); vertical-align: top; }
+  tr:nth-child(even) td { background: #fdfbf6; }
+  .story { background: var(--pink-bg); border: 2px dashed var(--pink); border-radius: 14px; padding: 14px 18px; margin: 14px 0; font-size: 15px; }
+  .why { background: var(--amber-bg); border-left: 6px solid var(--amber); padding: 12px 16px; border-radius: 0 10px 10px 0; margin: 14px 0; font-size: 15px; }
+  .say { background: var(--green-bg); border-left: 6px solid var(--green); padding: 12px 16px; border-radius: 0 10px 10px 0; margin: 14px 0; font-size: 15px; }
+  .care { background: var(--red-bg); border-left: 6px solid var(--red); padding: 12px 16px; border-radius: 0 10px 10px 0; margin: 14px 0; font-size: 15px; }
+  .ask { background: var(--blue-bg); border-left: 6px solid var(--blue); padding: 12px 16px; border-radius: 0 10px 10px 0; margin: 14px 0; font-size: 15px; }
+  .file { display: inline-block; font-family: var(--mono); font-size: 13.5px; background: var(--purple-bg); color: var(--purple); padding: 4px 12px; border-radius: 8px; margin: 8px 0; font-weight: 500; }
+  .zh { display: block; font-size: 13.5px; color: var(--text2); margin: 4px 0 12px; }
+  .flow { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 14px 0; font-size: 14px; }
+  .flow .box { background: var(--purple-bg); border: 2px solid var(--purple); color: var(--purple); padding: 8px 16px; border-radius: 12px; font-weight: 600; }
+  .flow .arrow { color: var(--text3); font-size: 16px; }
+  .vocab { background: #f5f0ff; border: 2px dashed #c3b6ec; border-radius: 10px; padding: 10px 16px; margin: 12px 0; font-size: 14px; }
+  .vocab b { color: var(--purple); }
+  .big { font-size: 18px; }
+</style>
+</head>
+<body>
+<div class="container">
+
+<div class="hero">
+  <h1>智溯系统 · 代码启蒙讲义</h1>
+  <p>这一份讲义，是给"完全不懂编程"的你准备的。<br>我们从"电脑是怎么工作的"开始讲起，一步一步，把你自己写的系统全部讲明白。<br>答应我，读的时候把自己当成小朋友，把每个比喻都当真，你就一定能懂。</p>
+  <div class="tags">
+    <span>餐厅比喻贯穿全书</span><span>从零语法讲起</span><span>每行代码都翻译成人话</span><span>先讲"为什么"再讲"怎么写"</span>
+  </div>
+</div>
+
+<div class="toc">
+  <h2>目录（跟着读，别跳）</h2>
+  <ol>
+    <li><a href="#l0">第 0 课：电脑和程序，其实是一个厨房</a></li>
+    <li><a href="#l1">第 1 课：你的系统 = 一家"科研小餐厅"（最重要的框架）</a></li>
+    <li><a href="#l2">第 2 课：语言是什么？为什么有好几种编程语言</a></li>
+    <li><a href="#l3">第 3 课：Python 语法幼儿园版（玩具盒篇）</a></li>
+    <li><a href="#l4">第 4 课：你的后端文件地图（谁是谁）</a></li>
+    <li><a href="#l5">第 5 课：config.py —— 餐厅的"设置中心"</a></li>
+    <li><a href="#l6">第 6 课：models.py —— 仓库怎么登记东西</a></li>
+    <li><a href="#l7">第 7 课：main.py —— 餐厅的开业仪式</a></li>
+    <li><a href="#l8">第 8 课：api 文件 —— 给客人开的服务窗口</a></li>
+    <li><a href="#l9">第 9 课：WebSocket —— 一直打着的电话</a></li>
+    <li><a href="#l10">第 10 课：哈希链 —— 给账本盖章（多米诺骨牌）</a></li>
+    <li><a href="#l11">第 11 课：水印 —— 给 AI 写的东西盖印章</a></li>
+    <li><a href="#l12">第 12 课：Agent —— 三个小帮手流水线</a></li>
+    <li><a href="#l13">第 13 课：网页和前端 —— 桌子上的菜单</a></li>
+    <li><a href="#l14">第 14 课：TypeScript 语法幼儿园版（积木篇）</a></li>
+    <li><a href="#l15">第 15 课：你的前端文件地图（谁是谁）</a></li>
+    <li><a href="#l16">第 16 课：完整的一天（从头到尾的故事）</a></li>
+    <li><a href="#l17">第 17 课：三个看代码的口诀</a></li>
+  </ol>
+</div>
+
+<!-- ==================== 第0课 ==================== -->
+<section id="l0">
+<h2 class="lesson">第 0 课 · 电脑和程序，其实是一个厨房</h2>
+<p>小朋友，我们先来回答一个最笨的问题：<strong>电脑到底是什么？</strong></p>
+<p>你可以把电脑想象成<strong>一间很听话、但很笨的厨房</strong>：</p>
+<ul>
+  <li>电脑里的<strong>零件（CPU、内存）</strong>，就像厨房里的灶台、锅、冰箱——它们什么都不会自己干，等着有人指挥；</li>
+  <li><strong>程序（Program）</strong>，就是一份<strong>菜谱</strong>——上面写着一步一步要做什么："先放油，再放菜，炒三分钟"；</li>
+  <li><strong>代码（Code）</strong>，就是写下来的菜谱文字。你现在看到的所有 .py、.ts 文件，都是菜谱；</li>
+  <li><strong>运行（Run）</strong>，就是照着菜谱开始做菜。</li>
+</ul>
+<div class="story">🏠 <strong>一个故事：</strong>从前有一台电脑，它什么都不会。有人给它写了一份菜谱："如果看见数字 5，就把它变成数字 6。"电脑就照着做，一遍又一遍，从来不累，也从来不问"为什么"。电脑就是这么笨——<strong>你说什么它做什么，你写错了它也跟着错。</strong>所以写代码的人一定要写得清清楚楚。</div>
+<div class="why">🤔 <strong>为什么学编程要先懂这个？</strong>因为后面所有代码，你都可以问自己一句话："电脑看到这一行，会照着做什么？"——这个问题能解答 90% 的疑惑。</div>
+
+<div class="vocab"><b>这一课要学会的 5 个词（都会反复出现）：</b>
+<br>· <b>程序</b> = 一份完整的菜谱（一个软件）
+<br>· <b>代码</b> = 菜谱的文字（写在文件里）
+<br>· <b>运行</b> = 照着菜谱做
+<br>· <b>变量</b> = 一个贴了名字的盒子（装东西用）
+<br>· <b>函数</b> = 菜谱里的一小段"万能步骤"（后面细讲）</div>
+</section>
+
+<!-- ==================== 第1课 ==================== -->
+<section id="l1">
+<h2 class="lesson">第 1 课 · 你的系统 = 一家"科研小餐厅"（最重要的框架）</h2>
+<p>现在我们要给整个系统搭一个"大骨架"。这是<strong>全书最重要的一课</strong>，请慢慢读。</p>
+
+<h3>1.1 一个网站，分成"看得见的"和"看不见的"</h3>
+<p>你打开任何一个网站（比如淘宝），其实有<strong>两个世界</strong>同时存在：</p>
+<ul>
+  <li><strong>你看得见的世界（前端 Frontend）</strong>：网页长什么样、按钮点下去有什么反应。它住在<strong>你的浏览器里</strong>。</li>
+  <li><strong>你看不见的世界（后端 Backend）</strong>：数据存在哪、怎么算、怎么防作弊。它住在<strong>另一台电脑（服务器）上</strong>。</li>
+</ul>
+<p>为什么一定要分开？因为<strong>你的浏览器很"透明"</strong>——任何人按 F12 都能看到网页的全部代码。如果把"我的密码怎么验证""我的数据库在哪"也写进网页，等于把保险柜钥匙贴在大门上。所以<strong>秘密都必须放后端</strong>，前端只能"喊话"让后端办事。</p>
+
+<h3>1.2 用"餐厅"来记住整个框架</h3>
+<div class="story">🍽️ <strong>你的系统是一家"科研小餐厅"：</strong>
+<br>· <strong>你</strong> = 客人，来吃饭（打开网页）；
+<br>· <strong>网页（前端）</strong> = 前台，客人能看到菜单、能点菜；
+<br>· <strong>后端</strong> = 厨房，客人看不见，但真正的活都在这里干；
+<br>· <strong>数据库</strong> = 仓库，所有菜和材料（数据）都存在里面；
+<br>· <strong>HTTP（普通请求）</strong> = 传菜员，客人点一次菜，端一次菜（问一句，答一句）；
+<br>· <strong>WebSocket（长连接）</strong> = 电话线，一直通着，随时说话（打字实时同步）；
+<br>· <strong>Agent（三个小帮手）</strong> = 厨房里的研究员、作家、导师，帮你查资料、写文章、检查格式。</div>
+<div class="ask">❓ <strong>为什么要用餐厅来记？</strong>因为"框架逻辑"这种东西，用术语记很容易忘，用故事记一辈子忘不了。以后你看到"前端"两个字，就在心里说"哦，前台"；看到"后端"，就说"哦，厨房"。</div>
+
+<h3>1.3 前后端怎么说话？（传菜员和电话线）</h3>
+<ul>
+  <li><strong>传菜员 HTTP</strong>：前端说"我要看文档列表" → 后端把列表送过来 → 结束。每次都要重新喊。适合"偶尔要一次"的事（打开页面、保存文档、检测水印）；</li>
+  <li><strong>电话线 WebSocket</strong>：一次接通，一直保持。A 打一个字，电话线立刻告诉 B。适合"随时都要同步"的事（多人协同编辑）。</li>
+</ul>
+<div class="why">🤔 <strong>为什么协同编辑必须用电话线，不能用传菜员？</strong>想象你每打一个字都要"点一次菜、等菜端上来"，打字就会卡顿 0.5 秒，体验极差。电话线一次接通后免费无限聊天，才够快。</div>
+
+<h3>1.4 你的"科研小餐厅"有三样独门绝活</h3>
+<table>
+  <tr><th>绝活</th><th>餐厅里的说法</th><th>技术名字</th><th>管什么用</th></tr>
+  <tr><td>1</td><td>好几个客人同时在一张纸上写字，谁都能看到谁在写</td><td>Yjs 实时协同编辑</td><td>多人一起写论文</td></tr>
+  <tr><td>2</td><td>给每道菜盖一个"防伪章"，谁要是偷改菜谱，章就会断掉</td><td>SHA-256 哈希链溯源</td><td>保证内容没被篡改</td></tr>
+  <tr><td>3</td><td>给"AI 厨师"做的菜盖一个隐形印章，能检测出这菜是不是 AI 做的</td><td>Kirchenbauer 水印</td><td>检测 AI 生成内容</td></tr>
+</table>
+<p>记住这句话，这就是整个系统的<strong>一句话总结</strong>：</p>
+<div class="say">💡 <strong>智溯系统 = 多人实时一起写论文（协同） + 谁能改、改没改，全有记录（溯源） + 是不是 AI 写的，能查出来（水印）</strong></div>
+</section>
+
+<!-- ==================== 第2课 ==================== -->
+<section id="l2">
+<h2 class="lesson">第 2 课 · 语言是什么？为什么有好几种编程语言</h2>
+<p>电脑是外国人，它只懂一种语言：0 和 1。我们写代码，需要"翻译"。<strong>不同的编程语言，就是不同的"翻译方式"。</strong></p>
+
+<h3>2.1 四种语言，就像四种人</h3>
+<table>
+  <tr><th>语言</th><th>像哪种人</th><th>特点</th></tr>
+  <tr><td><strong>C++</strong></td><td>一个特别严格的老师</td><td>每句话都要说得清清楚楚（变量是整数还是小数，必须写明白），说得清楚所以跑得快。你学过一点。</td></tr>
+  <tr><td><strong>Python</strong></td><td>一个随和的朋友</td><td>说话随意，不用提前声明"我要放整数还是小数"，写起来快。你的后端用它。</td></tr>
+  <tr><td><strong>JavaScript</strong></td><td>一个自由的小孩</td><td>浏览器里唯一的语言，很随意，有时候随意过头会出奇怪问题。</td></tr>
+  <tr><td><strong>TypeScript</strong></td><td>JavaScript 的"哥哥"</td><td>在 JavaScript 基础上加了"检查"：写错了类型，还没运行就先提醒你。你的前端用它。</td></tr>
+</table>
+
+<h3>2.2 两个最重要的对比：翻译方式和类型检查</h3>
+<p><strong>对比一：先翻译好，还是边做边翻译？</strong></p>
+<ul>
+  <li><strong>C++（编译型）</strong>：把整本菜谱先翻译成"机器语言"（生成一个 .exe 文件），再开始做。速度快，但改一行要重新翻译；</li>
+  <li><strong>Python / JS（解释型）</strong>：一边读菜谱一边做，改一行立刻生效，方便，但慢一点。</li>
+</ul>
+<p><strong>对比二：盒子要不要提前贴标签？</strong></p>
+<ul>
+  <li><strong>C++（静态类型）</strong>：`int x = 5;` —— 提前声明"这个盒子专门放整数"。严格，不容易错；</li>
+  <li><strong>Python（动态类型）</strong>：`x = 5` —— 盒子随便放，方便但容易"放错东西"；</li>
+  <li><strong>TypeScript（带检查的动态）</strong>：还是随便放，但写的时候有"安检员"盯着：你要是把字符串当成数字用，它马上举红旗。</li>
+</ul>
+<div class="why">🤔 <strong>为什么你的项目选 Python + TypeScript？</strong>后端要快速开发、要用 AI 生态（Python 最强），所以用 Python；前端要多人协作、代码量不小，怕出错，所以用"有安检员"的 TypeScript。这是现在非常主流的选择。</div>
+</section>
+
+<!-- ==================== 第3课 ==================== -->
+<section id="l3">
+<h2 class="lesson">第 3 课 · Python 语法幼儿园版（玩具盒篇）</h2>
+<p>这一课，我们把 Python 最重要的语法，用"玩具盒"的方式全学会。<strong>学完这一课，你就能读懂后端 80% 的代码了。</strong></p>
+
+<h3>3.1 变量 = 贴了名字的盒子</h3>
+<pre><code>APP_NAME = <span class="st">"Research Colab Backend"</span>   <span class="cm"># 一个盒子，名字叫 APP_NAME，里面装文字</span>
+DEBUG = <span class="kw">True</span>                          <span class="cm"># 一个盒子，装"真/假"</span>
+count = <span class="num">3</span>                             <span class="cm"># 一个盒子，装数字 3</span></code></pre>
+<ul>
+  <li><code>=</code> 不是数学里的"等于"，而是"把右边的东西放进左边的盒子"！这是新手最容易搞错的：Python 里判断"是否相等"用 <code>==</code>（两个等号）；</li>
+  <li>盒子里能装：<strong>文字（字符串 str）</strong>、<strong>数字（整数 int / 小数 float）</strong>、<strong>真/假（布尔 bool）</strong>、还有下面几种"大盒子"。</li>
+</ul>
+
+<h3>3.2 列表 = 排队；字典 = 电话本</h3>
+<pre><code><span class="cm"># 列表（排队）：有顺序，第 0 个、第 1 个…</span>
+CORS_ORIGINS = [<span class="st">"http://localhost:5173"</span>, <span class="st">"http://127.0.0.1:5173"</span>]
+CORS_ORIGINS[<span class="num">0</span>]        <span class="cm"># 取第 1 个 → "http://localhost:5173"（注意从 0 开始数！）</span>
+
+<span class="cm"># 字典（电话本）：按"名字"找"号码"，键→值</span>
+result = {<span class="st">"status"</span>: <span class="st">"ok"</span>, <span class="st">"version"</span>: <span class="st">"0.1.0"</span>}
+result[<span class="st">"status"</span>]       <span class="cm"># 查"status"这一行 → "ok"</span></code></pre>
+<div class="care">⚠️ <strong>从 0 开始数</strong>，是程序员世界的规矩（C++ 也这样）。第一次总是别扭，习惯就好。</div>
+
+<h3>3.3 如果……就……（if 判断）</h3>
+<pre><code><span class="kw">if</span> stats[<span class="st">"chars"</span>] &lt; <span class="num">100</span>:      <span class="cm"># 如果字数小于 100</span>
+    <span class="fn">print</span>(<span class="st">"太短了"</span>)         <span class="cm">#    就打印"太短了"（注意前面有缩进！）</span>
+<span class="kw">elif</span> stats[<span class="st">"chars"</span>] &lt; <span class="num">300</span>:  <span class="cm"># 或者字数小于 300</span>
+    <span class="fn">print</span>(<span class="st">"有点短"</span>)
+<span class="kw">else</span>:                      <span class="cm"># 否则（都不满足）</span>
+    <span class="fn">print</span>(<span class="st">"长度合适"</span>)</code></pre>
+<div class="care">⚠️ <strong>Python 最特别的规矩：缩进就是语法！</strong>在 C++ 里缩进只是好看；在 Python 里，缩进决定"这句话属于谁"。<code>if</code> 下面缩进的代码才在"如果"里面。缩进错了，程序直接报错。这是新手 80% 错误的原因。</div>
+
+<h3>3.4 重复做（for 循环）</h3>
+<pre><code><span class="kw">for</span> item <span class="kw">in</span> <span class="fn">range</span>(<span class="num">5</span>):      <span class="cm"># 让 item 从 0 数到 4，数 5 次</span>
+    <span class="fn">print</span>(item)          <span class="cm"># 每次都打印出来</span>
+
+<span class="kw">for</span> d <span class="kw">in</span> docs:            <span class="cm"># 从 docs（一个列表）里一个一个拿出来</span>
+    <span class="fn">print</span>(d.title)       <span class="cm"># 每拿出来一个，打印它的 title</span></code></pre>
+<p>for = "对这里面的每一个东西，都做一遍下面的事"。这是电脑最擅长的——<strong>重复一万次也不累</strong>。</p>
+
+<h3>3.5 函数 = 万能小步骤（榨汁机）</h3>
+<pre><code><span class="kw">def</span> <span class="fn">加果汁</span>(水果):          <span class="cm"># 定义一台"榨汁机"：名字叫加果汁，需要放一个"水果"进来</span>
+    <span class="kw">return</span> 水果 + <span class="st">"汁"</span>    <span class="cm"># 机器吐出"水果汁"（return = 吐出来）</span>
+
+加果汁(<span class="st">"苹果"</span>)            <span class="cm"># 用这台机器 → "苹果汁"</span>
+加果汁(<span class="st">"橙子"</span>)            <span class="cm"># 再用一次 → "橙子汁"</span></code></pre>
+<ul>
+  <li><code>def 名字(材料):</code> = 定义一台机器；<code>return</code> = 机器的出口；</li>
+  <li><strong>为什么要把代码装进函数？</strong>因为同样的操作要用很多次。写一次，用一百次；而且给机器起个好名字（比如 <code>compute_hash</code>），读代码的人一眼就懂"这里在算哈希"。</li>
+</ul>
+
+<h3>3.6 类 = 模具（批量生产同款东西）</h3>
+<pre><code><span class="kw">class</span> <span class="fn">小狗</span>:
+    <span class="kw">def</span> <span class="fn">__init__</span>(self, 名字):   <span class="cm"># 造小狗时自动执行，给它起名字</span>
+        self.名字 = 名字        <span class="cm"># self = "这只小狗自己"</span>
+    <span class="kw">def</span> <span class="fn">叫</span>(self):             <span class="cm"># 每只小狗都会"叫"</span>
+        <span class="fn">print</span>(<span class="st">"汪汪"</span>)
+
+小黄 = 小狗(<span class="st">"小黄"</span>)    <span class="cm"># 用模具造出一只叫小黄的小狗</span>
+小黄.叫()             <span class="cm"># 小黄会叫 → "汪汪"</span></code></pre>
+<ul>
+  <li><code>class 名字:</code> = 定义模具；<code>__init__</code> = 每次造东西时自动执行的第一步（名字带两个下划线，是 Python 的"魔法方法"）；</li>
+  <li><code>self</code> = 说"我自己"——和 C++ 的 <code>this</code> 一模一样；</li>
+  <li>你的代码里 <code>class WatermarkEngine:</code>（水印引擎）、<code>class RoomManager:</code>（房间管理器）都是模具。</li>
+</ul>
+
+<h3>3.7 import = 从工具箱里拿工具</h3>
+<pre><code><span class="kw">import</span> hashlib                  <span class="cm"># 拿整个"哈希工具箱"</span>
+<span class="kw">import</span> numpy <span class="kw">as</span> np              <span class="cm"># 拿"数学工具箱"，并叫它 np（短一点好写）</span>
+<span class="kw">from</span> config <span class="kw">import</span> settings     <span class="cm"># 从 config 文件里，拿 settings 这个变量</span>
+<span class="kw">from</span> models <span class="kw">import</span> Document    <span class="cm"># 从 models 文件里，拿 Document 这个模具</span></code></pre>
+<p>一个文件就是一个小工具箱。<code>from A import B</code> = "从 A 工具箱里拿 B 工具"。C++ 里叫 <code>#include</code>，意思一样。</p>
+
+<h3>3.8 防翻车：try / except（"试试看，不行就换路"）</h3>
+<pre><code><span class="kw">try</span>:
+    <span class="kw">import</span> asyncpg        <span class="cm"># 先试试：能不能装上 PostgreSQL 的工具</span>
+    engine = <span class="fn">create_engine</span>(...)   <span class="cm"># 能装上，就用它连数据库</span>
+<span class="kw">except</span> ImportError:       <span class="cm"># 如果失败了（没装这个工具）</span>
+    <span class="kw">pass</span>                  <span class="cm"># 不报错，先跳过（pass = 什么都不做）</span></code></pre>
+<p>try = "我试试"，except = "如果翻车了怎么办"。程序不怕翻车，怕<strong>翻车后没人管直接崩溃</strong>。except 就是"安全网"。</p>
+
+<h3>3.9 async / await = "等的时候先干别的"（点外卖）</h3>
+<div class="story">📱 <strong>故事：</strong>你在餐厅点了一份要等 15 分钟的菜。<strong>同步</strong> = 你站在柜台前干瞪眼 15 分钟，什么都不能干。<strong>异步</strong> = 你点了菜，拿个号，先玩手机，菜好了服务员喊你。<code>await</code> 就是"我等它，但我不占着别人"。</div>
+<pre><code><span class="kw">async def</span> <span class="fn">点菜</span>():                 <span class="cm"># async 标记：这个函数可以"边等边干别的"</span>
+    resp = <span class="kw">await</span> 服务员.上菜(...)  <span class="cm"># await：等菜，但等待期间别人也能干活</span>
+    <span class="kw">return</span> resp</code></pre>
+<div class="why">🤔 <strong>为什么你的后端到处是 async/await？</strong>因为服务器同时要服务好多客人。如果第 1 个客人点菜（请求 arXiv）要等 15 秒，而服务器"干等"，那第 2、3、4 个客人全部卡死。用了 async，等待的时间用来服务别人，大家都不卡。</div>
+
+<h3>3.10 with = 自动开门关门</h3>
+<pre><code><span class="kw">async with</span> async_session_factory() <span class="kw">as</span> db:
+    <span class="cm"># 在这里用数据库</span>
+<span class="cm"># 一离开这个缩进块，数据库连接自动关闭</span></code></pre>
+<p>with = "用的时候开门，用完了自动关门"。省得你忘了关（忘了关 = 资源泄漏 = 服务器慢慢变慢）。</p>
+<div class="say">🎉 <strong>恭喜！学完这 10 个小节，你已经掌握了 Python 的核心语法。</strong>接下来的第 4~12 课，我们就用这些知识，把你后端的每一个文件读一遍。</div>
+</section>
+
+<!-- ==================== 第4课 ==================== -->
+<section id="l4">
+<h2 class="lesson">第 4 课 · 你的后端文件地图（谁是谁）</h2>
+<p>进厨房之前，先看厨房平面图。你的后端（backend 文件夹）里有这些文件，每个文件干一件事：</p>
+<table>
+  <tr><th>文件</th><th>它是什么</th><th>餐厅里的对应</th></tr>
+  <tr><td><code>main.py</code></td><td>整个后端的"大门口"</td><td>餐厅总店长，负责开门营业</td></tr>
+  <tr><td><code>config.py</code></td><td>所有设置放这里</td><td>店规手册（营业时间、菜价标准）</td></tr>
+  <tr><td><code>database.py</code></td><td>怎么连上数据库</td><td>仓库的进货通道</td></tr>
+  <tr><td><code>models.py</code></td><td>定义"数据长什么样"</td><td>仓库的登记表模板</td></tr>
+  <tr><td><code>api/</code> 文件夹</td><td>给客人开的服务窗口</td><td>前台窗口（点菜、结账）</td></tr>
+  <tr><td><code>services/</code> 文件夹</td><td>真正的"手艺活"</td><td>厨房深处的大厨（做菜）</td></tr>
+  <tr><td><code>websocket/</code> 文件夹</td><td>实时聊天的电话线</td><td>电话总机</td></tr>
+  <tr><td><code>tests/</code> 文件夹</td><td>测试菜谱好不好吃</td><td>品菜员</td></tr>
+</table>
+<div class="why">🤔 <strong>为什么要分这么多文件？</strong>想象把所有菜谱写在一张纸上，厨房会乱成一团。一个文件管一件事，找东西快，改东西不容易碰坏别处。这叫"模块化"。</div>
+<p>一个最常用的"电话本"——文件之间的互相引用关系（谁找谁帮忙）：</p>
+<pre><code>main.py ──► api/ 文件（服务窗口）
+  │             │
+  └──► database.py ◄── api/ 文件
+         │
+         └──► models.py（登记表模板）
+api/watermark.py ──► services/watermark_engine.py（水印大厨）
+api/agents.py    ──► services/agent_orchestrator.py（三个小帮手的总管）
+api/documents.py ──► services/oplog_chain.py（盖章记账的工具）</code></pre>
+</section>
+
+<!-- ==================== 第5课 ==================== -->
+<section id="l5">
+<h2 class="lesson">第 5 课 · config.py —— 餐厅的"设置中心"</h2>
+<p>打开 <span class="file">backend/config.py</span>，我们一行一行看。它干的事：<strong>把所有"能调的参数"集中放在一起</strong>。</p>
+<pre><code><span class="kw">class</span> <span class="fn">Settings</span>(BaseSettings):       <span class="cm"># 一个模具，用来造"设置"对象</span>
+    APP_NAME: str = <span class="st">"Research Colab Backend"</span>   <span class="cm"># 餐厅名字</span>
+    DEBUG: bool = <span class="kw">True</span>                          <span class="cm"># 试营业模式开关</span>
+    CORS_ORIGINS: List[str] = [<span class="st">"http://localhost:5173"</span>]
+    <span class="cm"># 上面这行：允许哪些"别的网站"来访问我（白名单）</span>
+    DATABASE_URL: str = <span class="st">"postgresql+asyncpg://..."</span>   <span class="cm"># 仓库的地址</span>
+    WATERMARK_GAMMA: <span class="kw">float</span> = <span class="num">0.5</span>            <span class="cm"># 水印的"绿名单比例"</span>
+    HASHCHAIN_SALT: str = <span class="st">"research-colab-oplog-salt"</span>  <span class="cm"># 盖章用的"秘密盐"</span></code></pre>
+<p>逐行翻译成"人话"：</p>
+<ul>
+  <li><code>class Settings(BaseSettings):</code> —— 定义一个模具，用来造"设置"对象。BaseSettings 是 pydantic 这个库给的"神奇基类"，继承它之后，这个模具能<strong>自动从电脑的环境变量里读值</strong>（你不用改代码，就能换设置）；</li>
+  <li><code>APP_NAME: str = "..."</code> —— 冒号后面 <code>str</code> 是"类型注解"（提醒：这个盒子装文字）；<code>= "..."</code> 是<strong>默认值</strong>（如果没人改，就用这个）；</li>
+  <li><strong>CORS_ORIGINS 为什么要单独列白名单？</strong>浏览器有规定：A 网站不许随便偷看 B 网站的数据。你的网页在 5173 端口，后端在 8000 端口，是两个"网站"。必须在后端明确说"5173 可以访问我"，否则浏览器直接把请求拦住。这就是 CORS（跨域）。</li>
+</ul>
+<pre><code><span class="kw">@lru_cache</span>
+<span class="kw">def</span> <span class="fn">get_settings</span>() -> Settings:
+    <span class="kw">return</span> Settings()
+
+settings = <span class="fn">get_settings</span>()</code></pre>
+<ul>
+  <li><code>@lru_cache</code> —— 装饰器（第 2 课学过：给函数加特效）。它的特效是：<strong>"算过一次就记住，以后直接给结果"</strong>。因为设置只需要读一次文件，没必要每次重新读；</li>
+  <li>最后一行 <code>settings = get_settings()</code> —— 程序一启动就造好这个设置对象，全项目所有文件 <code>from config import settings</code> 都拿这同一个。</li>
+</ul>
+<div class="why">🤔 <strong>为什么要把设置单独放一个文件？</strong>想象店规写在每道菜的菜谱里：改一次营业时间，要翻遍所有菜谱。集中放一个文件，改一处，全餐厅生效。</div>
+</section>
+
+<!-- ==================== 第6课 ==================== -->
+<section id="l6">
+<h2 class="lesson">第 6 课 · models.py —— 仓库怎么登记东西</h2>
+<p>打开 <span class="file">backend/models.py</span>。这个文件定义了"数据长什么样"——相当于<strong>仓库的登记表模板</strong>：每个表有一行一列，列叫什么名、装什么类型，都在这定死。</p>
+<p>先讲清楚一个概念——<strong>数据库和 Excel 几乎一样</strong>：</p>
+<table>
+  <tr><th>数据库概念</th><th>Excel 类比</th><th>你的代码里</th></tr>
+  <tr><td>表（Table）</td><td>一个工作表</td><td>documents 表</td></tr>
+  <tr><td>一行（Row）</td><td>一行数据</td><td>一篇文档</td></tr>
+  <tr><td>一列（Column）</td><td>一列字段</td><td>title 列</td></tr>
+  <tr><td>主键（Primary Key）</td><td>行号，唯一</td><td>id</td></tr>
+  <tr><td>外键（Foreign Key）</td><td>引用别的表的行号</td><td>owner_id 指向 users 表</td></tr>
+</table>
+<pre><code><span class="kw">class</span> <span class="fn">Document</span>(Base):                <span class="cm"># 定义一个模具：文档</span>
+    __tablename__ = <span class="st">"documents"</span>      <span class="cm"># 对应数据库里叫 documents 的表</span>
+
+    id: Mapped[uuid.UUID] = <span class="fn">mapped_column</span>(
+        UUID_TYPE, primary_key=<span class="kw">True</span>, default=<span class="fn">_gen_uuid</span>
+    )                                   <span class="cm"># 主键：每个文档的唯一身份证号</span>
+    title: Mapped[str] = <span class="fn">mapped_column</span>(String(<span class="num">512</span>), nullable=<span class="kw">False</span>)
+                                        <span class="cm"># 标题：最长 512 个字，不能空</span>
+    owner_id: Mapped[uuid.UUID] = <span class="fn">mapped_column</span>(
+        UUID_TYPE, ForeignKey(<span class="st">"users.id"</span>, ondelete=<span class="st">"CASCADE"</span>)
+    )                                   <span class="cm"># 外键：这篇文档是谁的（指向 users 表）</span>
+    content: Mapped[str] = <span class="fn">mapped_column</span>(Text, default=<span class="st">""</span>)
+                                        <span class="cm"># 正文：不限长度，默认空</span>
+    watermark_status: Mapped[<span class="kw">int</span>] = <span class="fn">mapped_column</span>(SmallInteger, default=<span class="num">0</span>)
+                                        <span class="cm"># 水印状态：0=没查过 1=有AI水印 2=纯人类</span></code></pre>
+<p>关键翻译：</p>
+<ul>
+  <li><code>class Document(Base):</code> —— 定义一个"文档"模具。Base 是 SQLAlchemy 给所有模具的公共基类（公共父类）；</li>
+  <li><code>Mapped[类型]</code> —— 告诉 SQLAlchemy："这一列是这种类型"；</li>
+  <li><code>primary_key=True</code> —— 主键，唯一身份证号，不能重复；</li>
+  <li><code>ForeignKey("users.id")</code> —— 外键，指向 users 表的 id 列。<code>ondelete="CASCADE"</code> = <strong>"删除用户时，他的文档也一起删"</strong>（级联，像推倒第一块积木，后面跟着倒）；</li>
+  <li><strong>为什么 id 用 UUID 而不是 1、2、3？</strong>因为多人同时创建文档时，用 1、2、3 会"撞车"（两个人都拿到 3 号）。UUID 是全球唯一的乱码编号，各造各的永远不会重复。</li>
+</ul>
+<div class="why">🤔 <strong>为什么数据库这一层这么重要？</strong>因为"数据"是一家餐厅的命根子。谁删了文档、谁改了内容，都要靠"登记表"记清楚。你系统里的"溯源链"（第 10 课）就是在这些登记表上做文章的。</div>
+</section>
+
+<!-- ==================== 第7课 ==================== -->
+<section id="l7">
+<h2 class="lesson">第 7 课 · main.py —— 餐厅的开业仪式</h2>
+<p>打开 <span class="file">backend/main.py</span>。整个后端的启动命令是 <code>uvicorn main:app</code>，意思就是"从 main 文件里把 app 这个对象拿出来运行"。它干了 4 件事：</p>
+<h3>7.1 开业前的准备（lifespan）</h3>
+<pre><code><span class="kw">@asynccontextmanager</span>
+<span class="kw">async def</span> <span class="fn">lifespan</span>(app):
+    <span class="kw">await</span> <span class="fn">init_db</span>()            <span class="cm"># ① 建仓库：按 models.py 的图纸建所有表</span>
+    <span class="kw">await</span> <span class="fn">seed_demo_data</span>()    <span class="cm"># ② 摆好演示用品：一个演示用户 + 一篇演示文档</span>
+    <span class="kw">await</span> <span class="fn">seed_literature</span>()  <span class="cm"># ③ 进货：塞入 8 篇文献（给 AI 小帮手查资料用）</span>
+    <span class="kw">yield</span>                    <span class="cm"># ④ 一切就绪，开门营业！</span></code></pre>
+<ul>
+  <li><code>lifespan</code> = 餐厅的"营业准备仪式"。程序一启动自动执行 <code>yield</code> 前面的部分，然后开始营业；程序关闭时，执行 <code>yield</code> 后面的部分（这里留空了）；</li>
+  <li><strong>为什么每次启动都建表？</strong>因为 <code>init_db()</code> 用的是"如果表不存在才建"（create_all），已经存在的表不会动。所以启动 100 次也不会搞坏数据；</li>
+  <li><strong>种子数据（seed）</strong> = 给新餐厅提前摆好的"样板菜"，让客人一进门就有东西看。用固定 UUID，所以重复启动也不会重复插入。</li>
+</ul>
+<h3>7.2 挂上服务窗口（include_router）</h3>
+<pre><code>app.<span class="fn">include_router</span>(documents_api.router)   <span class="cm"># 文档窗口</span>
+app.<span class="fn">include_router</span>(agents_api.router)      <span class="cm"># Agent 窗口</span>
+app.<span class="fn">include_router</span>(watermark_api.router)   <span class="cm"># 水印窗口</span>
+app.<span class="fn">include_router</span>(literature_api.router)  <span class="cm"># 文献窗口</span>
+app.<span class="fn">include_router</span>(collaborative_router)   <span class="cm"># 电话线（WebSocket）</span></code></pre>
+<p>每个 api 文件里都定义了一个 <code>router</code>（服务窗口），main.py 把它们一个个"装到大门上"。客人访问 <code>/api/documents</code>，就走进文档窗口。</p>
+<h3>7.3 健康检查</h3>
+<pre><code><span class="kw">@app.get</span>(<span class="st">"/api/health"</span>)       <span class="cm"># 客人访问这个网址时</span>
+<span class="kw">async def</span> <span class="fn">health_check</span>():      <span class="cm"># 执行这个函数</span>
+    <span class="kw">return</span> {<span class="st">"status"</span>: <span class="st">"ok"</span>}  <span class="cm"># 回答："我还活着"</span></code></pre>
+<p>健康检查 = 医院里的"心跳监护仪"。别人想知道后端死没死，访问这个网址就行。它返回的 <code>{"status": "ok"}</code> 是一份 JSON（一种"用文字装数据"的格式，长得和 Python 字典一模一样）。</p>
+</section>
+
+<!-- ==================== 第8课 ==================== -->
+<section id="l8">
+<h2 class="lesson">第 8 课 · api 文件 —— 给客人开的服务窗口</h2>
+<p>api 文件夹里有 4 个文件，套路完全一样。我们学会一个，其他全会。先记住<strong>服务窗口的 4 步套路</strong>：</p>
+<div class="flow">
+  <span class="box">1 写网址（@router）</span><span class="arrow">→</span><span class="box">2 拿数据库（Depends）</span><span class="arrow">→</span><span class="box">3 查/改数据</span><span class="arrow">→</span><span class="box">4 把结果还回去</span>
+</div>
+<pre><code><span class="kw">@router.get</span>(<span class="st">"/documents"</span>)            <span class="cm"># 第 1 步：客人 GET /api/documents 时</span>
+<span class="kw">async def</span> <span class="fn">list_documents</span>(db = <span class="fn">Depends</span>(get_db)):   <span class="cm"># 第 2 步：领一个数据库会话</span>
+    stmt = <span class="fn">select</span>(Document)          <span class="cm"># 第 3 步：说"我要查文档表"</span>
+    result = <span class="kw">await</span> db.<span class="fn">execute</span>(stmt)  <span class="cm"># 执行查询</span>
+    <span class="kw">return</span> <span class="fn">list</span>(result.<span class="fn">scalars</span>().<span class="fn">all</span>())  <span class="cm"># 第 4 步：把全部文档还回去</span></code></pre>
+<p>新词解释：</p>
+<ul>
+  <li><code>@router.get("/documents")</code> —— 装饰器。告诉 FastAPI："当有人用 GET 方法访问 /documents 网址时，调用下面的函数"；</li>
+  <li><code>Depends(get_db)</code> —— FastAPI 的依赖注入。意思是"FastAPI，请你帮我调用 get_db，把数据库会话塞给我"。你不需要自己创建数据库连接，框架全包了；</li>
+  <li><code>select(Document)</code> —— SQLAlchemy 的查询语法，等价于 SQL 的 <code>SELECT * FROM documents</code>；</li>
+  <li><code>await</code> —— 等查询结果（异步，第 3 课学过）。</li>
+</ul>
+<h3>8.1 修改文档：这里藏着"溯源链"的写入点</h3>
+<pre><code><span class="kw">@router.patch</span>(<span class="st">"/{doc_id}"</span>)           <span class="cm"># PATCH = "改一部分"</span>
+<span class="kw">async def</span> <span class="fn">update_document</span>(doc_id, payload, db):
+    <span class="kw">async with</span> <span class="fn">oplog_append_lock</span>(doc_id):   <span class="cm"># 先锁上门（防两个人同时记账）</span>
+        doc = <span class="kw">await</span> db.<span class="fn">get</span>(Document, doc_id)   <span class="cm"># 按 ID 找到这篇文档</span>
+        <span class="kw">if</span> doc <span class="kw">is</span> <span class="kw">None</span>:                     <span class="cm"># 找不到？</span>
+            <span class="kw">raise</span> HTTPException(<span class="num">404</span>, ...)  <span class="cm"># 就回答 404（网页里"页面不存在"）</span>
+        <span class="kw">for</span> field, value <span class="kw">in</span> data.<span class="fn">items</span>():   <span class="cm"># 把客人传来的每个字段</span>
+            <span class="fn">setattr</span>(doc, field, value)     <span class="cm"># 一个一个写到文档对象上</span>
+        <span class="kw">if</span> content_changed:               <span class="cm"># 如果正文变了</span>
+            <span class="kw">await</span> <span class="fn">_append_content_log</span>(...)  <span class="cm"># 就在账本上记一笔（哈希链日志！）</span>
+        <span class="kw">await</span> db.<span class="fn">commit</span>()                <span class="cm"># 保存（不 commit = 没保存）</span></code></pre>
+<ul>
+  <li><code>raise HTTPException(404)</code> —— "raise" = 抛出一个错误信号。404 是"找不到"的意思（上网时看到的 404 页面就是这个）；</li>
+  <li><code>db.commit()</code> —— 数据库的"保存"按钮。不按保存，改动只在草稿里；</li>
+  <li><strong>oplog_append_lock 是什么？</strong>——一把锁（第 10 课细讲）。先记住：<strong>因为账本（哈希链）要求"一条接一条"，两个人同时记账会乱，所以要锁门，一次只让一个人记。</strong></li>
+</ul>
+<h3>8.2 一个"数据安检门"（Pydantic）</h3>
+<pre><code><span class="kw">class</span> <span class="fn">DocumentCreate</span>(BaseModel):
+    title: str = Field(..., min_length=<span class="num">1</span>, max_length=<span class="num">512</span>)
+    owner_id: uuid.UUID
+    content: str = <span class="st">""</span></code></pre>
+<p>客人 POST 数据进来时，先过这个"安检门"：title 必须是文字、必须 1~512 个字、owner_id 必须是 UUID 格式。不合格直接拒绝（返回 422 错误）。<strong>为什么要有安检门？</strong>因为不能让乱七八糟的数据进数据库——就像不能让客人把外带的奇怪东西带进厨房。</p>
+</section>
+
+<!-- ==================== 第9课 ==================== -->
+<section id="l9">
+<h2 class="lesson">第 9 课 · WebSocket —— 一直打着的电话</h2>
+<p>打开 <span class="file">backend/websocket/document_ws.py</span>。这是<strong>全项目最"硬核"</strong>的文件，但我们用"电话"和"暗号"就能讲明白。</p>
+<h3>9.1 先认识"字节"——电话里传的不是字，是数字</h3>
+<p>电脑之间传东西，传的不是文字，是<strong>字节（Byte）</strong>——一串 0 和 1。为了好写，通常写成两位十六进制，比如 <code>0x00</code>（就是 0）、<code>0x01</code>（就是 1）、<code>0x02</code>（就是 2）。</p>
+<pre><code>MSG_SYNC = <span class="num">0</span>        <span class="cm"># 暗号 0：这是"同步消息"（文档内容更新）</span>
+MSG_AWARENESS = <span class="num">1</span>    <span class="cm"># 暗号 1：这是"谁在线、光标在哪"的消息</span>
+MSG_AUTH = <span class="num">2</span>        <span class="cm"># 暗号 2：这是"验证身份"的消息（还没用）</span></code></pre>
+<p>协议 = 双方约定的暗号规则。规则是：<strong>消息的第一个字节告诉我"这是哪种消息"</strong>。就像快递单第一格填"品类"。</p>
+<h3>9.2 房间（Room）：谁和谁在一个电话群里</h3>
+<pre><code><span class="kw">class</span> <span class="fn">RoomManager</span>:
+    <span class="kw">def</span> <span class="fn">__init__</span>(self):
+        self._connections = {}   <span class="cm"># 一个电话本：文档ID → 这个文档的"电话群"</span>
+    <span class="kw">async def</span> <span class="fn">connect</span>(self, doc_id, ws):
+        <span class="kw">await</span> ws.<span class="fn">accept</span>(subprotocol=<span class="st">"yjs"</span>)  <span class="cm"># 接电话，并说"我懂 yjs 暗号"</span>
+        self._connections.<span class="fn">setdefault</span>(doc_id, <span class="fn">set</span>()).<span class="fn">add</span>(ws)  <span class="cm"># 拉进群</span></code></pre>
+<ul>
+  <li><code>_connections</code> 是字典：键 = 文档 ID，值 = 一个集合（set）。集合 = "不重复的名单"（第 3 课学过）；</li>
+  <li><strong>房间 = 正在编辑同一篇文档的所有人</strong>。消息只发给同房间的人——编辑不同文档的人互不打扰；</li>
+  <li><code>subprotocol="yjs"</code> = 握手时说"我会用 yjs 这套暗号"。前端也是这么说的，两边对上了才能通话。</li>
+</ul>
+<h3>9.3 最关键的一句话：转发时排除发送者</h3>
+<pre><code><span class="kw">async def</span> <span class="fn">broadcast_update</span>(self, doc_id, update, exclude=<span class="kw">None</span>):
+    <span class="kw">for</span> ws <span class="kw">in</span> self._connections.<span class="fn">get</span>(doc_id, <span class="fn">set</span>()):
+        <span class="kw">if</span> ws <span class="kw">is</span> exclude:   <span class="cm"># 如果是发送者本人</span>
+            <span class="kw">continue</span>          <span class="cm"># 跳过，不转发给他</span>
+        <span class="kw">await</span> ws.<span class="fn">send_bytes</span>(update)   <span class="cm"># 发给群里其他人</span></code></pre>
+<div class="care">⚠️ <strong>为什么必须跳过发送者？</strong>想象一下：A 发消息 → 服务器转发给 B → B 收到后广播"我收到了" → 服务器又转发给 A → A 又广播……<strong>会永远循环下去，变成消息风暴，把服务器累垮。</strong>所以规则必须是：谁说的，就不告诉谁。</div>
+<h3>9.4 三个暗号子类型（同步流程）</h3>
+<pre><code><span class="kw">if</span> sync_type == SYNC_STEP1:    <span class="cm"># 新客人进群：发他的"状态向量"（我有哪些内容）</span>
+    <span class="cm"># 服务器没存内容，回一个"空更新"：00 01 02 00 00（表示"好，你同步吧"）</span>
+<span class="kw">elif</span> sync_type == SYNC_STEP2:  <span class="cm"># 客人回传补丁 → 转发给别人</span>
+<span class="kw">elif</span> sync_type == SYNC_UPDATE: <span class="cm"># 日常打字 → 转发给别人</span></code></pre>
+<p>这里有一个<strong>著名的坑</strong>（代码注释里都写了）：空更新必须写成 <code>[0x00, 0x00]</code> 两个字节，少一个字节，对方解析就会崩溃。为什么？因为 Yjs 的规则是"先写长度，再写内容"，空内容 = 长度 0，编码出来就是两个 0。这种细节，只有踩过坑才会记得住。</p>
+</section>
+
+<!-- ==================== 第10课 ==================== -->
+<section id="l10">
+<h2 class="lesson">第 10 课 · 哈希链 —— 给账本盖章（多米诺骨牌）</h2>
+<p>这是你的系统"防篡改"的核心。打开 <span class="file">backend/services/oplog_chain.py</span>。</p>
+<h3>10.1 先学"指纹"（哈希 Hash）</h3>
+<p><strong>哈希 = 一个"数字指纹"机器。</strong>你喂给它任何内容，它吐出一个固定长度的乱码。这个乱码有两个神奇性质：</p>
+<ul>
+  <li>内容改一个字，指纹完全变样（比如把"我爱吃苹果"改成"我爱吃苹菓"，指纹就面目全非）；</li>
+  <li>指纹算不出原内容（单向的，只能正着算，不能倒着推）。</li>
+</ul>
+<p>就像人的指纹：人人都有，但极难伪造，手指沾一点灰指纹就变。</p>
+<pre><code><span class="kw">def</span> <span class="fn">compute_hash</span>(prev_hash, operation, timestamp, *, salt=<span class="kw">None</span>):
+    ts = timestamp.<span class="fn">timestamp</span>()        <span class="cm"># 把时间变成数字</span>
+    op_json = json.<span class="fn">dumps</span>(operation, ensure_ascii=<span class="kw">False</span>, sort_keys=<span class="kw">True</span>)
+    <span class="cm"># ↑ 把操作内容变成文字，键排好序（保证同一内容永远变出同一串字）</span>
+    payload = <span class="st">f"</span>{prev_hash}<span class="st">|</span>{op_json}<span class="st">|</span>{ts:.6f}<span class="st">|</span>{salt}<span class="st">"</span>
+    <span class="cm"># ↑ 把四样东西串成一根面条：上一个指纹 | 内容 | 时间 | 秘密盐</span>
+    <span class="kw">return</span> hashlib.<span class="fn">sha256</span>(payload.<span class="fn">encode</span>(<span class="st">"utf-8"</span>)).<span class="fn">hexdigest</span>()
+    <span class="cm"># ↑ 用 SHA-256 这台"指纹机"算指纹，hexdigest = 变成 64 位乱码文字</span></code></pre>
+<p>新词：</p>
+<ul>
+  <li><code>sort_keys=True</code> —— 把字典的键排序再变文字。<strong>为什么？</strong>因为字典在 Python 里顺序可能变化，同一内容如果两次顺序不同，指纹就不同——排序保证"同一内容永远算出同一指纹"；</li>
+  <li><strong>盐（salt）</strong> = 一段只有你知道的秘密调料。混进去之后，外人就算知道公式也算不出你的指纹（防伪造）；</li>
+  <li><code>f"..."</code> —— f-string，把 <code>{变量}</code> 的值直接塞进文字里（第 3 课学过）。</li>
+</ul>
+<h3>10.2 盖章记账（链是怎么形成的）</h3>
+<p>现在把"指纹"和"记账"结合起来。每次有人修改文档，就记一笔账，并且<strong>每笔账都盖上"包含上一笔指纹"的章</strong>：</p>
+<div class="flow">
+  <span class="box">第1笔账</span><span class="arrow">→</span><span class="box">第2笔账</span><span class="arrow">→</span><span class="box">第3笔账</span><span class="arrow">→</span><span class="box">第4笔账</span>
+</div>
+<p style="font-size:13.5px; color:var(--text2);">第 1 笔：指纹 = SHA256(空 + 内容1 + 时间 + 盐)<br>第 2 笔：指纹 = SHA256(第1笔的指纹 + 内容2 + 时间 + 盐)<br>第 3 笔：指纹 = SHA256(第2笔的指纹 + 内容3 + 时间 + 盐)……</p>
+<p>看出来了吗？<strong>每一笔的指纹里，都包含了上一笔的指纹。</strong>这就是"链"。就像多米诺骨牌：</p>
+<div class="story">🎳 <strong>多米诺故事：</strong>有人偷偷把第 2 笔账的内容改了 → 第 2 笔的指纹变了 → 但第 3 笔的指纹是拿"旧的第 2 笔指纹"算的，对不上了 → 第 4 笔也对不上……<strong>整个链条轰然倒塌。</strong>检查的人从头算一遍，立刻发现"这里断了"。这就是防篡改的原理：<strong>想改任何一笔，必须把后面所有笔全部重算——但数据库的"指纹不能重复"规则会拦住你。</strong></div>
+<h3>10.3 检查链条（verify_chain）</h3>
+<pre><code><span class="kw">def</span> <span class="fn">verify_chain</span>(entries):
+    prev_hash = <span class="st">""</span>                  <span class="cm"># 从"空指纹"开始（第一笔的上一笔是空的）</span>
+    <span class="kw">for</span> entry <span class="kw">in</span> entries:            <span class="cm"># 一笔一笔检查</span>
+        expected = <span class="fn">compute_hash</span>(prev_hash, entry[<span class="st">"operation"</span>], entry[<span class="st">"created_at"</span>])
+        <span class="kw">if</span> entry[<span class="st">"current_hash"</span>] != expected:   <span class="cm"># 重算的 ≠ 账上写的</span>
+            <span class="kw">return</span> <span class="kw">False</span>              <span class="cm"># → 有人改过！</span>
+        prev_hash = entry[<span class="st">"current_hash"</span>]   <span class="cm"># 把这笔的指纹传给下一笔</span>
+    <span class="kw">return</span> <span class="kw">True</span>                       <span class="cm"># 全部对得上 → 没问题</span></code></pre>
+<h3>10.4 为什么要"锁门"（并发锁）</h3>
+<div class="story">🚪 <strong>故事：</strong>账本规则是"每笔账的指纹都要用上一笔的指纹"。假设 A 和 B 同时来记账，两个人都先看了账本——最后一笔是"指纹5"。A 算出"指纹6"写上去，B 也算出"指纹6"写上去——<strong>两笔账指纹一样，账本规定"指纹不许重复"，B 就被拒绝了，账本还乱掉了。</strong>怎么办？给账本挂一把锁：<strong>一次只让一个人记账，记完再放下一个进来。</strong>这就是 <code>oplog_append_lock</code> 干的事。</div>
+</section>
+
+<!-- ==================== 第11课 ==================== -->
+<section id="l11">
+<h2 class="lesson">第 11 课 · 水印 —— 给 AI 写的东西盖印章</h2>
+<p>打开 <span class="file">backend/services/watermark_engine.py</span>。这一课用"餐厅点名"的故事讲，你一定会懂。</p>
+<h3>11.1 核心思想：AI 写的东西，会"守规矩"</h3>
+<div class="story">🍽️ <strong>餐厅点名故事：</strong>你是餐厅老板，想分辨"哪些菜是 AI 厨师做的"。你定了一条秘密规矩：<strong>每道菜的"下一道菜"，只能从一张"推荐名单"里选。</strong>
+<br>· <strong>AI 厨师</strong>严格遵守规矩 → 它做的套餐里，绝大多数菜都在名单里；
+<br>· <strong>人类厨师</strong>不知道规矩，随手做 → 命中名单的比例只是"碰巧"。
+<br>现在端来一桌菜，我们数"名单里的菜"有多少：<strong>多得出奇 → 这是 AI 做的；普普通通 → 人类做的。</strong></div>
+<p>水印算法就是把"菜"换成"字"，把"名单"换成"绿名单"：</p>
+<ul>
+  <li>对每个"前一个字"，用一个小公式（种子 = 大素数 × 前字的编号，再混入秘密钥匙）把"所有可能的字"洗牌，前 50%（gamma）进绿名单；</li>
+  <li><strong>AI 生成文本时"偏向"选绿名单里的字</strong>（把绿名单字的分数加 2.0）；</li>
+  <li>检测时：把文本逐字两两检查，数"后一个字在绿名单里"的次数；</li>
+  <li>算一个统计量 z（z 越大越像 AI）；<strong>z 超过 4 → 判定 AI 生成</strong>。</li>
+</ul>
+<h3>11.2 代码里怎么写的</h3>
+<pre><code><span class="kw">def</span> <span class="fn">_green_list_mask</span>(self, prev_token, vocab_size):
+    rng = self.<span class="fn">_seed_rng</span>(prev_token)      <span class="cm"># 用"前一个字"生成一台随机机器（同一前字→同一台）</span>
+    permutation = rng.<span class="fn">permutation</span>(vocab_size)  <span class="cm"># 把所有"字"洗牌（像洗扑克牌）</span>
+    green_count = <span class="fn">int</span>(vocab_size * self.gamma)  <span class="cm"># 名单要多大？50%</span>
+    mask = np.<span class="fn">zeros</span>(vocab_size, dtype=bool)     <span class="cm"># 一张全是"假"的清单</span>
+    mask[permutation[:green_count]] = <span class="kw">True</span>      <span class="cm"># 把洗牌后前 50% 标成"真"（进名单）</span>
+    <span class="kw">return</span> mask</code></pre>
+<p>为什么用"前一个字"当种子？因为 <strong>AI 生成每个字时都参考前面的字</strong>，检测方也能根据前面的字复现"当时 AI 用的名单"——这样双方用的是同一张名单，检测才准。种子机器是可复现的：<strong>同一个"前字"永远洗出同一副牌</strong>，所以检测方算得出来。</p>
+<h3>11.3 统计检验（z 分数）</h3>
+<pre><code><span class="kw">def</span> <span class="fn">_compute_z_score</span>(green_count, total, gamma):
+    numer = green_count - gamma * total      <span class="cm"># 实际命中 − 应该命中（差了多少）</span>
+    denom = math.<span class="fn">sqrt</span>(total * gamma * (<span class="num">1</span> - gamma))  <span class="cm"># 正常情况下会"抖"多少</span>
+    <span class="kw">return</span> <span class="fn">float</span>(numer / denom)</code></pre>
+<p>想象扔硬币：正常硬币扔 100 次，正面约 50 次，但会有波动（可能 48 次）。z 分数就是问：<strong>"这次的正面向上的次数，比正常波动还离谱多少？"</strong>波动 2 倍 → z=2，波动 4 倍 → z=4。AI 文本的绿名单命中远超正常波动，所以 z 很大。<strong>z &gt; 4 就判 AI</strong>，这个 4 是论文作者建议的"4 个标准差"，相当于"这事几乎不可能是巧合"。</p>
+<div class="why">🤔 <strong>为什么检测之前要"去重"（bigram 去重）？</strong>因为如果文章里反复出现同一个词组（比如"长安大学"出现 100 次），而这个词组碰巧总在绿名单里，命中数会虚高，人类文章会被误判成 AI。去重规则：<strong>同一个"两个字组合"只数一次</strong>，防止重复片段作弊。这是论文里的"可靠性修正"。</div>
+</section>
+
+<!-- ==================== 第12课 ==================== -->
+<section id="l12">
+<h2 class="lesson">第 12 课 · Agent —— 三个小帮手流水线</h2>
+<p>打开 <span class="file">backend/services/agent_orchestrator.py</span>。这个文件是"三个小帮手"的总管。</p>
+<h3>12.1 流水线：查资料 → 写文章 → 查格式</h3>
+<div class="flow">
+  <span class="box">🔬 Research 小研究员<br><span style="font-weight:400;font-size:12px">查文献（arXiv→本地）</span></span><span class="arrow">→</span>
+  <span class="box">✍️ Writer 小作家<br><span style="font-weight:400;font-size:12px">写草稿</span></span><span class="arrow">→</span>
+  <span class="box">🧠 Supervisor 小导师<br><span style="font-weight:400;font-size:12px">检查格式</span></span><span class="arrow">→</span>
+  <span class="box">完成 ✅</span>
+</div>
+<p>它们之间靠一个<strong>公文包（state）</strong>传递东西：小研究员把"查到的文献"放进公文包 → 小作家拿出文献写草稿放回去 → 小导师拿出草稿检查，把意见放回去。</p>
+<pre><code><span class="kw">class</span> <span class="fn">State</span>(TypedDict):      <span class="cm"># 规定公文包里有哪些夹层、各装什么</span>
+    research_input: Optional[str]      <span class="cm"># 小研究员的任务（你输入的话）</span>
+    research_output: Optional[str]     <span class="cm"># 小研究员的结果（查到的文献）</span>
+    writing_task: Optional[str]        <span class="cm"># 小作家的任务</span>
+    draft: Optional[str]               <span class="cm"># 小作家的草稿</span>
+    supervisor_feedback: Optional[str] <span class="cm"># 小导师的意见</span>
+    messages: List[Dict[str, Any]]     <span class="cm"># 大家说的话（记录）</span></code></pre>
+<p><code>Optional[str]</code> = "可能是文字，也可能是空（还没放到这一步）"。</p>
+<h3>12.2 小研究员怎么工作（降级三步走）</h3>
+<pre><code><span class="kw">async def</span> <span class="fn">research_agent_node</span>(state):
+    keywords = <span class="fn">_extract_keywords</span>(state.get(<span class="st">"research_input"</span>, <span class="st">""</span>))
+    <span class="cm"># ↑ 从你的话里"挑出关键词"（比如你说"查查水印算法"，挑出"水印"和"算法"）</span>
+    <span class="kw">try</span>:
+        arxiv_items = <span class="kw">await</span> <span class="fn">search_arxiv</span>(query, max_results=<span class="num">5</span>)
+        <span class="cm"># ↑ 第一步：上网查真实的论文（arXiv 是个论文网站）</span>
+        <span class="kw">if</span> arxiv_items: retrieved = [...]
+    <span class="kw">except</span> Exception <span class="kw">as</span> e:
+        <span class="cm"># ↑ 第二步：如果没网/超时，就查本地文献库（8 篇种子文献）</span>
+        ...
+    <span class="kw">if</span> <span class="kw">not</span> retrieved:
+        <span class="cm"># ↑ 第三步：还是没结果？就输出"模拟研究结果"兜底</span>
+        research_output = <span class="st">"【模拟研究结果】..."</span></code></pre>
+<div class="why">🤔 <strong>为什么要"降级三步走"？</strong>因为这是个演示系统，必须保证"任何时候点了都有反应"。没网也有本地文献，本地也搜不到也有模板结果。<strong>"演示永远不失败"</strong>——这是原型系统的生存哲学。代码注释里写得很明白："网络不可用时自动降级，演示链路始终可用"。</div>
+<h3>12.3 小导师怎么检查（规则引擎）</h3>
+<pre><code><span class="kw">from</span> services.academic_review <span class="kw">import</span> AcademicReviewEngine
+review = AcademicReviewEngine.<span class="fn">review</span>(draft)   <span class="cm"># 让"格式检查器"检查草稿</span>
+<span class="kw">if</span> review[<span class="st">"passed"</span>]:
+    feedback = <span class="st">"✅ 通过。草稿 ... 字 ... 学术格式基本规范。"</span>
+<span class="kw">else</span>:
+    feedback = <span class="st">"❌ 需修改: "</span> + 问题列表</code></pre>
+<p>注意：<strong>这个小导师不是 AI</strong>，它是一堆"如果……就……"的规则（第 3 课学的 if）：字数太少就提醒、引用编号不连续就报错、没有参考文献章节就报错……这叫"规则引擎"。代码注释也说了：将来可以接真正的 AI 做"语义评审"。</p>
+<h3>12.4 LangGraph 是什么？没装怎么办？</h3>
+<pre><code><span class="kw">try</span>:
+    <span class="kw">from</span> langgraph.graph <span class="kw">import</span> StateGraph, END
+    _LANGGRAPH_AVAILABLE = <span class="kw">True</span>
+<span class="kw">except</span> ImportError:
+    _LANGGRAPH_AVAILABLE = <span class="kw">False</span>     <span class="cm"># 没装这个库？没关系</span></code></pre>
+<ul>
+  <li><strong>LangGraph</strong> = 一个把流程画成"图"的库。能画"research → writer → supervisor，如果导师说重写就跳回 writer"这种带环的流程；</li>
+  <li><strong>没装怎么办？</strong>代码里有"降级图"：老老实实按顺序执行三个节点，<strong>结果和真实图一模一样</strong>。又一次"降级优先"——任何环境都能跑。</li>
+</ul>
+</section>
+
+<!-- ==================== 第13课 ==================== -->
+<section id="l13">
+<h2 class="lesson">第 13 课 · 网页和前端 —— 桌子上的菜单</h2>
+<p>现在我们去"餐厅前台"（前端）。先补三个基础知识，不然前端代码看不懂。</p>
+<h3>13.1 网页由三样东西组成（就像一道菜的三种原料）</h3>
+<table>
+  <tr><th>原料</th><th>管什么</th><th>类比</th></tr>
+  <tr><td><strong>HTML</strong></td><td>网页的骨架（有哪些块、段落、按钮）</td><td>菜的骨架（肉、菜、盘子）</td></tr>
+  <tr><td><strong>CSS</strong></td><td>网页的样子（颜色、大小、位置）</td><td>菜的摆盘（好看不好看）</td></tr>
+  <tr><td><strong>JavaScript (JS)</strong></td><td>网页的"动作"（点击、请求、变化）</td><td>菜的味道（会不会动起来）</td></tr>
+</table>
+<p>你的前端用的是 <strong>React</strong>——一个帮你"用代码生成网页"的工具箱。它的核心思想一句话：<strong>界面 = 数据的照片。</strong>数据一变，界面自动重拍一张。你不需要手动改网页。</p>
+<h3>13.2 React 最重要的一个概念：useState（会变的便利贴）</h3>
+<pre><code><span class="kw">const</span> [docId, setDocId] = useState&lt;string&gt;(<span class="st">''</span>);
+<span class="cm">// 翻译：造一张便利贴，名字叫 docId，现在是空文字。</span>
+<span class="cm">// 想改它？只能通过 setDocId 来改：setDocId("abc")</span>
+<span class="cm">// 便利贴一变，用到它的界面部分自动重画。</span></code></pre>
+<p>这就是 React 的全部魔法：<strong>你只管改数据（setDocId），界面自己更新。</strong></p>
+<h3>13.3 useEffect（开机自动做的事）</h3>
+<pre><code>useEffect(<span class="fn">()</span> =&gt; {
+  <span class="fn">fetchBootstrap</span>()...   <span class="cm">// 组件一上场，自动去后端要数据</span>
+}, []);                   <span class="cm">// 第二个参数 [] = "只在第一次上场时做一次"</span></code></pre>
+<p>useEffect = "组件上场后自动做的动作"（比如问后端要数据、接电话线）。第二个参数（依赖数组）决定多久做一次：<code>[]</code> 只做一次；<code>[docId]</code> 是 docId 变了就重做；不写是每次重画都做（一般不这么写）。</p>
+<h3>13.4 浏览器三件套和 React 的关系</h3>
+<p>你写的是 TypeScript（TS）→ 构建工具把它翻译成 JavaScript → 浏览器执行 JS 去改 HTML/CSS → 你看到网页。所以 <strong>TS 只是"更好写的 JS"</strong>，最后跑的还是 JS。</p>
+</section>
+
+<!-- ==================== 第14课 ==================== -->
+<section id="l14">
+<h2 class="lesson">第 14 课 · TypeScript 语法幼儿园版（积木篇）</h2>
+<p>前端代码里你会反复看到这些"积木"，一个一个认：</p>
+<h3>14.1 形状说明书：interface（规定对象长什么样）</h3>
+<pre><code><span class="kw">interface</span> DocSummary {        <span class="cm">// 一张"文档摘要"的图纸</span>
+  id: string;                 <span class="cm">// 必须有 id，是文字</span>
+  title: string;              <span class="cm">// 必须有 title，是文字</span>
+  content: string;
+  updatedAt: string;
+}</code></pre>
+<p>好处：写错字段名，编辑器立刻画红波浪线提醒你。这就是 TS"安检员"的作用。</p>
+<h3>14.2 枚举：enum（给一堆常量起名字）</h3>
+<pre><code><span class="kw">enum</span> AgentStatus {
+  IDLE = <span class="st">'idle'</span>,       <span class="cm">// 空闲</span>
+  RUNNING = <span class="st">'running'</span>,  <span class="cm">// 运行中</span>
+  COMPLETED = <span class="st">'completed'</span>, <span class="cm">// 已完成</span>
+  ERROR = <span class="st">'error'</span>,     <span class="cm">// 出错</span>
+}</code></pre>
+<p>不用枚举的话，你可能到处写 'running'，万一拼错成 'runing' 程序也不知道。用枚举，只能选这几个，不会错。</p>
+<h3>14.3 箭头函数（= 简写的小菜谱）</h3>
+<pre><code><span class="cm">// 普通写法（像 Python 的 def）</span>
+<span class="kw">function</span> <span class="fn">add</span>(a, b) { <span class="kw">return</span> a + b; }
+<span class="cm">// 箭头写法（更短）</span>
+<span class="kw">const</span> add = (a, b) =&gt; a + b;
+<span class="cm">// 异步箭头（里面可以用 await）</span>
+<span class="kw">const</span> handleSave = <span class="kw">async</span> () =&gt; { <span class="kw">await</span> save(); };</code></pre>
+<h3>14.4 解构（从盒子里一次性拿出好几样）</h3>
+<pre><code><span class="kw">const</span> { session_id: sessionId } = <span class="kw">await</span> triggerAgent(...);
+<span class="cm">// 翻译：触发 Agent 后返回一个对象，把它的 session_id 字段拿出来，改名叫 sessionId</span>
+<span class="cm">// （后端叫 session_id，前端规范叫 sessionId，所以改名）</span>
+
+<span class="kw">const</span> [list, v] = <span class="kw">await</span> Promise.all([<span class="fn">getProvenance</span>(docId), <span class="fn">verifyProvenance</span>(docId)]);
+<span class="cm">// 翻译：两个请求一起发，都完成后，第一个结果放 list，第二个放 v</span></code></pre>
+<h3>14.5 模板字符串（= Python 的 f-string）</h3>
+<pre><code><span class="kw">const</span> msg = <span class="st">`文档 ${docId} 已保存`</span>;   <span class="cm">// 反引号 + ${} 插入变量</span></code></pre>
+<h3>14.6 可选链 ?.（"如果有才取"）</h3>
+<pre><code>writerMsg?.content
+<span class="cm">// 翻译：如果 writerMsg 不是空的，才取它的 content；是空的就得到 undefined（不报错）</span>
+<span class="cm">// 没有 ?. 的话，访问空对象会直接崩溃</span></code></pre>
+</section>
+
+<!-- ==================== 第15课 ==================== -->
+<section id="l15">
+<h2 class="lesson">第 15 课 · 你的前端文件地图（谁是谁）</h2>
+<p>前端（frontend/src 文件夹）里只有 12 个文件，比后端还少，挨个认识：</p>
+<table>
+  <tr><th>文件</th><th>它是什么</th><th>餐厅里的对应</th></tr>
+  <tr><td><code>main.tsx</code></td><td>网页的"开机启动"</td><td>开灯、开门</td></tr>
+  <tr><td><code>App.tsx</code></td><td>整页布局 + 总状态</td><td>餐厅大堂总管</td></tr>
+  <tr><td><code>lib/api.ts</code></td><td>打电话给后端的所有话术</td><td>点菜话术本</td></tr>
+  <tr><td><code>lib/collab.ts</code></td><td>Yjs 协同会话的管理（防重复连接）</td><td>电话总机（保证只接一根线）</td></tr>
+  <tr><td><code>lib/yjs.ts</code></td><td>操作协同文档的工具</td><td>记账/看账的工具</td></tr>
+  <tr><td><code>components/Editor/CollaborativeEditor.tsx</code></td><td>核心！协同编辑器</td><td>多人共用的写字黑板</td></tr>
+  <tr><td><code>components/Agent/AgentPanel.tsx</code></td><td>左栏：三个小帮手的面板</td><td>叫帮手的按钮</td></tr>
+  <tr><td><code>components/Watermark/WatermarkPanel.tsx</code></td><td>右栏：水印检测</td><td>检查菜是不是 AI 做的</td></tr>
+  <tr><td><code>components/Provenance/ProvenancePanel.tsx</code></td><td>右栏：溯源链展示</td><td>展示账本</td></tr>
+  <tr><td><code>components/Literature/LiteraturePanel.tsx</code></td><td>右栏：文献检索</td><td>查资料书架</td></tr>
+  <tr><td><code>index.css</code></td><td>样式（颜色/布局）</td><td>餐厅装修</td></tr>
+</table>
+<h3>15.1 打开 App.tsx（三栏布局）</h3>
+<pre><code><span class="kw">return</span> (
+  &lt;div className=<span class="st">"h-screen w-screen flex flex-col"</span>&gt;      <span class="cm">// 整屏，竖着排</span>
+    &lt;header&gt;...顶栏：文档切换 / 新建 / 导出...&lt;/header&gt;
+    &lt;div className=<span class="st">"flex-1 flex"</span>&gt;                     <span class="cm">// 中间，横着排</span>
+      &lt;AgentPanel docId={docId} /&gt;                  <span class="cm">// 左：Agent 面板</span>
+      &lt;CollaborativeEditor key={docId} ... /&gt;       <span class="cm">// 中：编辑器</span>
+      &lt;aside&gt;...右栏：水印/溯源/文献（三个标签页）...&lt;/aside&gt;
+    &lt;/div&gt;
+  &lt;/div&gt;
+);</code></pre>
+<ul>
+  <li><code>&lt;AgentPanel docId={docId} /&gt;</code> —— 把 docId 传给子组件。父子组件通过"属性（props）"传数据；</li>
+  <li><code>key={docId}</code> —— 给组件贴个标签：docId 变了，就重新创建编辑器（切换文档时旧编辑器整个换掉）；</li>
+  <li>Tailwind 的类名（h-screen、flex、w-80…）就是现成的装修样式：h-screen=占满屏高、flex=横排、w-80=宽 320px。</li>
+</ul>
+<h3>15.2 开机数据从哪来</h3>
+<pre><code>useEffect(<span class="fn">()</span> =&gt; {
+  <span class="fn">fetchBootstrap</span>()                      <span class="cm">// 问后端：演示用户是谁？有哪些文档？</span>
+    .<span class="fn">then</span>(<span class="fn">(boot)</span> =&gt; {                   <span class="cm">// 后端回答了，就：</span>
+      setUserId(boot.demo_user_id);      <span class="cm">// 记住用户</span>
+      setDocs(boot.documents.<span class="fn">map</span>(...));  <span class="cm">// 记住文档列表（map=一个个转换）</span>
+      setDocId(boot.demo_doc_id);        <span class="cm">// 默认打开演示文档</span>
+      setBackendOk(<span class="kw">true</span>);
+    })
+    .<span class="fn">catch</span>(<span class="fn">()</span> =&gt; setBackendOk(<span class="kw">false</span>));  <span class="cm">// 后端没开？显示"后端未启动"</span>
+}, []);</code></pre>
+<p><code>.then(成功了干什么)</code> + <code>.catch(失败了干什么)</code> —— 这是 Promise 的写法，和 async/await 是两种风格，效果一样（前端很多地方混着用，两种都认识就行）。</p>
+<h3>15.3 lib/collab.ts —— 为什么必须有"单例缓存"</h3>
+<pre><code><span class="kw">const</span> sessions = <span class="kw">new</span> Map&lt;string, CollabSession&gt;();  <span class="cm">// 全局电话本</span>
+<span class="kw">export function</span> getCollabSession(docId: string): CollabSession {
+  <span class="kw">let</span> session = sessions.<span class="fn">get</span>(docId);   <span class="cm">// 先查：这个文档的电话线接了吗？</span>
+  <span class="kw">if</span> (!session) {                  <span class="cm">// 没接？</span>
+    <span class="kw">const</span> ydoc = <span class="kw">new</span> Y.Doc();      <span class="cm">// 造一个"协同记事本"</span>
+    <span class="kw">const</span> provider = <span class="kw">new</span> WebsocketProvider(..., ydoc);  <span class="cm">// 接一根电话线</span>
+    sessions.<span class="fn">set</span>(docId, session);   <span class="cm">// 记到电话本里</span>
+  }
+  <span class="kw">return</span> session;                  <span class="cm">// 不管接没接，都返回这根线</span>
+}</code></pre>
+<div class="care">⚠️ <strong>为什么必须"全局只接一根线"？</strong>两个原因：① React 开发模式会故意"挂载→卸载→再挂载"组件，如果每次挂载都新建连接，会开一堆重复电话线；② 编辑器、Agent 面板、水印面板都要用同一个记事本，如果各开各的连接，不但数据不同步，还会造成"光标消息无限转发回环"（A 的话传到 B，B 又传回 A，永远循环）。<strong>所以：一根线，全页面共用。</strong>代码注释里写得很明白。</div>
+<h3>15.4 协同编辑器：一块"多人共用的黑板"</h3>
+<pre><code><span class="kw">const</span> editor = useEditor({
+  extensions: [
+    StarterKit.<span class="fn">configure</span>({ history: <span class="kw">false</span> }),  <span class="cm">// 基础排版功能；关掉本地撤销（协同下会打架）</span>
+    Collaboration.<span class="fn">configure</span>({
+      fragment: ydoc.<span class="fn">getXmlFragment</span>(<span class="st">'default'</span>),  <span class="cm">// 把编辑器接到共享记事本上！</span>
+    }),
+    CollaborationCursor.<span class="fn">configure</span>({ provider, user: { name: username } }),
+    <span class="cm">// ↑ 多光标：把"我的光标在哪"实时告诉别人</span>
+  ],
+});</code></pre>
+<p><strong>黑板的比喻</strong>：Yjs 的记事本（ydoc）就是那块共享黑板。Collaboration 扩展让编辑器"盯着"黑板：别人写了什么，黑板一变化，你的屏幕立刻更新；你写了什么，黑板也记录，并同步给别人。多光标 = 黑板上显示"谁的光标在哪个字旁边"。</p>
+<h3>15.5 为什么 AI 插入内容"必须走正门"</h3>
+<pre><code><span class="kw">export function</span> appendText(editor, ydoc, text, author) {
+  <span class="kw">if</span> (!editor || !editor.isEditable) { ... }   <span class="cm">// 编辑器没准备好：直接操作数据层</span>
+  editor.commands.<span class="fn">insertContentAt</span>(editor.state.doc.content.size, {
+    type: <span class="st">'paragraph'</span>,
+    content: [{ type: <span class="st">'text'</span>, text, marks: [{ type: <span class="st">'author'</span>, attrs: { author } }] }],
+  });
+  <span class="cm">// ↑ 走编辑器的"正门"插入，并贴上 author 标签（ai=蓝，human=白）</span>
+}</code></pre>
+<div class="care">⚠️ <strong>为什么不能绕过正门直接往记事本里写？</strong>因为编辑器有个"同步员"（ySyncPlugin）：一旦发现记事本被外部改动，它会用记事本内容<strong>重建整个编辑器</strong>。如果你绕过正门偷偷写，重建时你的内容会被当成"来历不明的字"丢掉。<strong>走正门（editor.commands），同步员才认账。</strong>这是本项目踩过坑后写下的教训。</div>
+<h3>15.6 自动保存（防抖 1.5 秒）</h3>
+<pre><code>editor.<span class="fn">on</span>(<span class="st">'update'</span>, <span class="fn">()</span> =&gt; {
+  timer = window.<span class="fn">setTimeout</span>(<span class="fn">()</span> =&gt; {
+    <span class="kw">const</span> text = getPlainText(ydoc);   <span class="cm">// 把黑板内容变成纯文字</span>
+    updateDocument(docId, { content: text, operatorId });  <span class="cm">// 存到后端（顺带记账）</span>
+  }, <span class="num">1500</span>);
+});</code></pre>
+<div class="why">🤔 <strong>为什么要等 1.5 秒？</strong>你打字很快，如果每敲一个字都保存一次，后端会累垮。策略：<strong>每次打字就重置计时器，等你停手 1.5 秒才真正保存。</strong>这叫"防抖"（Debounce），就像"等水烧开，但每次有人搅一下水就重新计时"。</div>
+</section>
+
+<!-- ==================== 第16课 ==================== -->
+<section id="l16">
+<h2 class="lesson">第 16 课 · 完整的一天（从头到尾的故事）</h2>
+<p>现在把所有知识串成一个完整的故事。<strong>请边读边回忆前面的图。</strong></p>
+
+<h3>16.1 早上：你打开网页</h3>
+<div class="flow">
+  <span class="box">浏览器加载前端</span><span class="arrow">→</span><span class="box">main.tsx 启动</span><span class="arrow">→</span><span class="box">App 上场</span><span class="arrow">→</span><span class="box">问后端要数据（HTTP）</span><span class="arrow">→</span><span class="box">后端查仓库</span><span class="arrow">→</span><span class="box">网页摆好</span>
+</div>
+<p>同时，App 调用 <code>getCollabSession</code> 接了一根电话线（WebSocket）到后端。后端把它拉进"演示文档"的房间。</p>
+
+<h3>16.2 上午：你和同学一起写论文</h3>
+<p>你打了一个字：</p>
+<div class="flow">
+  <span class="box">你的记事本（Yjs）记下</span><span class="arrow">→</span><span class="box">电话线告诉后端</span><span class="arrow">→</span><span class="box">后端转告同学（跳过你！）</span><span class="arrow">→</span><span class="box">同学的记事本更新</span><span class="arrow">→</span><span class="box">同学屏幕出现你的字</span>
+</div>
+<p>你停手 1.5 秒 → 前端把全文通过 HTTP 存到后端 → 后端<strong>锁上门</strong> → 把这次修改<strong>盖章记进哈希链账本</strong> → 解锁。现在，账本上多了一笔：谁、什么时候、改了什么，指纹一串。</p>
+
+<h3>16.3 下午：你让三个小帮手干活</h3>
+<p>你在左栏输入"帮我查查水印算法的文献"，点"启动文献检索"：</p>
+<div class="flow">
+  <span class="box">HTTP 告诉后端</span><span class="arrow">→</span><span class="box">小研究员上网查（不行就查本地）</span><span class="arrow">→</span><span class="box">小作家写草稿</span><span class="arrow">→</span><span class="box">小导师检查格式</span><span class="arrow">→</span><span class="box">结果送回前端</span><span class="arrow">→</span><span class="box">AI 内容蓝字写进黑板</span>
+</div>
+<p>同学那边，蓝字也通过电话线实时出现——<strong>他知道这段是 AI 写的</strong>（蓝色 = AI，白色 = 人类）。</p>
+
+<h3>16.4 晚上：检测水印 + 检查账本 + 导出</h3>
+<p>你在右栏点"检测当前文档全文并留痕"：后端把全文喂给水印引擎，算出 z 分数，z &gt; 4 就判定"AI 生成"，并把这个检测动作<strong>也记进账本</strong>。然后你打开"溯源链"面板，看到一长串带指纹的账本记录，点校验，后端从头算一遍："✅ 链条完整，未被篡改"。最后点"导出 Markdown"，下载的文件开头就写着：溯源哈希链校验：✅ 完整可信。</p>
+<div class="say">💡 <strong>整个系统的故事，其实就一句话：</strong>一群人在一块共享黑板上写论文（协同），每写一笔都有人盖章记账（溯源），谁要是 AI 写的能查出来（水印）。前端管黑板，后端管账本和印章，数据库是仓库。</div>
+</section>
+
+<!-- ==================== 第17课 ==================== -->
+<section id="l17">
+<h2 class="lesson">第 17 课 · 三个看代码的口诀</h2>
+<p>最后，送你三句口诀。以后遇到任何看不懂的代码，先默念它们：</p>
+<h3>口诀一：先问"电脑会照着做什么"</h3>
+<p>每一行代码，你都可以问："电脑读到这一行，会照着做什么动作？"——变量是放东西，if 是判断，for 是重复，函数是调用机器。把代码翻译成动作，就懂了。</p>
+<h3>口诀二：先看"为什么有这个东西"，再看"它怎么写"</h3>
+<p>你的项目里每一个"奇怪"的设计，背后都有一个故事：</p>
+<ul>
+  <li>为什么空更新是两个 0？——因为有人踩过"解析崩溃"的坑；</li>
+  <li>为什么转发要跳过发送者？——因为会消息风暴；</li>
+  <li>为什么 AI 插入要走正门？——因为会被同步员丢掉；</li>
+  <li>为什么单例缓存？——因为 StrictMode 会重复挂载；</li>
+  <li>为什么加锁记账？——因为并发会撞指纹；</li>
+  <li>为什么降级三步走？——因为演示不能失败。</li>
+</ul>
+<p><strong>这些"为什么"，比代码本身更值钱。</strong>答辩时讲这些故事，评委会觉得你真懂。</p>
+<h3>口诀三：从"入口"顺着走，别乱翻</h3>
+<ul>
+  <li>后端入口：<code>main.py</code>（看它 include 了谁）；</li>
+  <li>前端入口：<code>main.tsx</code> → <code>App.tsx</code>（看它引用了谁）；</li>
+  <li>顺着"调用链"走，就像跟着服务员走一遍厨房，比乱翻文件快十倍。</li>
+</ul>
+<div class="care">⚠️ <strong>最后一个提醒：</strong>不要试图背代码。背概念地图（哪里是入口、哪里有锁、哪里会降级、两条通道怎么分工）。概念通了，代码只是查字典。</div>
+</section>
+
+<p style="text-align:center; color:var(--text3); font-size:13px; margin-top:32px;">—— 智溯系统 · 代码启蒙讲义 · 完 ——<br>读完后，可以配合《代码零基础讲义.html》加深语法，再用《系统代码深度详解.html》查每个函数的细节。</p>
+
+
+</div>
+</body>
+</html>

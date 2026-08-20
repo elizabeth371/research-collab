@@ -1,0 +1,82 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Tiptap 编辑器基础样式 */
+.tiptap {
+  min-height: 100%;
+  padding: 2rem 2.5rem;
+  outline: none;
+  line-height: 1.8;
+  font-size: 1rem;
+}
+
+.tiptap p {
+  margin: 0.5em 0;
+}
+
+.tiptap h1 {
+  font-size: 1.6em;
+  font-weight: 700;
+  margin: 0.8em 0 0.4em;
+}
+
+.tiptap h2 {
+  font-size: 1.35em;
+  font-weight: 600;
+  margin: 0.8em 0 0.4em;
+}
+
+.tiptap h3 {
+  font-size: 1.15em;
+  font-weight: 600;
+  margin: 0.8em 0 0.4em;
+}
+
+.tiptap ul,
+.tiptap ol {
+  padding-left: 1.5em;
+  margin: 0.5em 0;
+}
+
+.tiptap blockquote {
+  border-left: 3px solid #d1d5db;
+  padding-left: 1em;
+  margin: 0.8em 0;
+  color: #4b5563;
+}
+
+.tiptap pre {
+  background: #1f2937;
+  color: #f9fafb;
+  border-radius: 6px;
+  padding: 1em;
+  overflow-x: auto;
+}
+
+.tiptap code {
+  background: #f3f4f6;
+  padding: 0.15em 0.4em;
+  border-radius: 3px;
+  font-size: 0.9em;
+}
+
+/* CRDT 作者着色 (通过 mark 渲染挂载在 .tiptap 容器下) */
+.author-ai {
+  background-color: rgba(59, 130, 246, 0.18); /* 蓝色 = AI 内容 */
+  border-radius: 2px;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+
+.author-human {
+  background-color: rgba(255, 255, 255, 0.0); /* 白色透明 = 人类内容 */
+}
+
+/* 光标标签 (y-prosemirror 渲染) */
+.yProseMirror-cursorLabel, .ProseMirror-yjs-cursor {
+  font-size: 0.7em;
+  padding: 0 0.3em;
+  border-radius: 3px;
+  color: white;
+}

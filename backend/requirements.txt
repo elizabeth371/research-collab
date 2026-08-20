@@ -1,0 +1,43 @@
+# ============================================================
+# 面向科研诚信的多Agent实时协同与版权溯源系统 - 后端依赖
+# 安装: pip install -r requirements.txt
+# ============================================================
+
+# --- Web 框架 ---
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+python-multipart==0.0.20
+
+# --- 数据库 (异步 SQLAlchemy + asyncpg) ---
+sqlalchemy[asyncio]==2.0.36
+asyncpg==0.30.0
+alembic==1.14.0
+# SQLite 异步驱动 (PostgreSQL 不可用时自动回退)
+aiosqlite==0.22.1
+
+# --- 协同引擎 (Ypy: Python 版 Yjs) ---
+# PyPI 包名为 y-py, 导入名为 ypy
+# 注意: Windows 平台无预编译 wheel, 需先安装 Rust 工具链才能编译:
+#   rustup.rs 安装后执行: pip install y-py==0.5.4
+# 服务端 (document_ws.py) 已做降级处理: 未安装 ypy 时以纯转发模式运行,
+# 客户端间同步不受影响; 仅服务端侧 CRDT 状态合并/持久化需 ypy。
+# y-py==0.5.4
+# 注: y-websocket 服务端协议由本项目自研实现
+# (见 backend/websocket/document_ws.py), 无需额外第三方包
+
+# --- AI Agent 编排 ---
+langchain==0.3.11
+langchain-core==0.3.24
+langchain-openai==0.2.12
+langgraph==0.2.57
+
+# --- AI 模型客户端 (DeepSeek-V3 / 通义千问 - 预留) ---
+openai==1.57.4
+
+# --- 水印算法 ---
+numpy==1.26.4
+
+# --- 工具 ---
+pydantic==2.10.3
+pydantic-settings==2.6.1
+python-dotenv==1.0.1

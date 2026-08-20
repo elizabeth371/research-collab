@@ -1,0 +1,307 @@
+import type {
+  Document,
+  WatermarkDetectionResult,
+  AgentMessage,
+} from '@shared/types';
+
+/**
+ * 后端 API 客户端
+ * -----------------
+ * 与 FastAPI 后端对齐 (见 /backend/api/*.py):
+ *   - 响应为裸 JSON (无 {success, data} 包装)
+ *   - Agent 触发: POST /api/agents/invoke
+ *   - Agent 消息: GET  /api/agents/sessions/{session_id}/messages
+ *   - 水印检测:   POST /api/watermark/detect
+ */
+
+/** 后端 API 基础路径 */
+const BASE_URL = '/api';
+
+async function request<T>(path: string, options?: RequestInit): Promise<T> {
+  const res = await fetch(`${BASE_URL}${path}`, {
+    headers: { 'Content-Type': 'application/json' },
+    ...options,
+  });
+  if (!res.ok) {
+    throw new Error(`API ${path} 请求失败: ${res.status} ${res.statusText}`);
+  }
+  if (res.status === 204) {
+    return undefined as T;
+  }
+  return (await res.json()) as T;
+}
+
+// ---------------------------------------------------------------------------
+// 文档
+// ---------------------------------------------------------------------------
+
+/** 后端 DocumentOut 原始响应 (snake_case) */
+interface BackendDocument {
+  id: string;
+  title: string;
+  owner_id: string;
+  content: string;
+  watermark_status: number;
+  agent_session_id?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** 将后端 snake_case 文档响应映射为共享 camelCase 类型 */
+const mapDocument = (raw: BackendDocument): Document => ({
+  id: raw.id,
+  title: raw.title,
+  ownerId: raw.owner_id,
+  content: raw.content,
+  watermarkStatus: raw.watermark_status as Document['watermarkStatus'],
+  agentSessionId: raw.agent_session_id,
+  // 后端当前不返回协作者列表, 映射为空数组 (共享类型占位字段)
+  collaborators: [],
+  createdAt: raw.created_at,
+  updatedAt: raw.updated_at,
+});
+
+/** 获取文档列表 */
+export const listDocuments = async () => {
+  const raw = await request<BackendDocument[]>('/documents');
+  return raw.map(mapDocument);
+};
+
+/** 获取单个文档 */
+export const getDocument = async (docId: string) => {
+  const raw = await request<BackendDocument>(`/documents/${docId}`);
+  return mapDocument(raw);
+};
+
+/** 创建文档 */
+export const createDocument = async (payload: {
+  title: string;
+  ownerId: string;
+  content?: string;
+}) => {
+  const raw = await request<BackendDocument>('/documents', {
+    method: 'POST',
+    // 后端 DocumentCreate 为 snake_case: title / owner_id / content
+    body: JSON.stringify({
+      title: payload.title,
+      owner_id: payload.ownerId,
+      content: payload.content ?? '',
+    }),
+  });
+  return mapDocument(raw);
+};
+
+/** 更新文档 (标题 / 内容); operatorId 用于溯源链操作日志 */
+export const updateDocument = (
+  docId: string,
+  payload: { title?: string; content?: string; operatorId?: string }
+) =>
+  request<Document>(`/documents/${docId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({
+      ...(payload.title !== undefined && { title: payload.title }),
+      ...(payload.content !== undefined && { content: payload.content }),
+      ...(payload.operatorId !== undefined && {
+        operator_id: payload.operatorId,
+      }),
+    }),
+  });
+
+// ---------------------------------------------------------------------------
+// Agent
+// ---------------------------------------------------------------------------
+
+/** 后端 /api/agents/invoke 的响应结构 */
+export interface AgentInvokeResponse {
+  accepted: boolean;
+  session_id: string;
+  message: string;
+}
+
+/** 后端 /api/agents/sessions/{id}/messages 的响应结构 */
+export interface AgentMessagesResponse {
+  session_id: string;
+  messages: AgentMessage[];
+  total: number;
+}
+
+/**
+ * 触发 Agent 运行 (research / writer / supervisor)
+ * 字段与后端 AgentInvokeRequest 对齐: doc_id, agent_type, instruction
+ */
+export const triggerAgent = (
+  agentType: 'research' | 'writer' | 'supervisor',
+  docId: string,
+  prompt: string
+) =>
+  request<AgentInvokeResponse>('/agents/invoke', {
+    method: 'POST',
+    body: JSON.stringify({
+      agent_type: agentType,
+      doc_id: docId,
+      instruction: prompt,
+    }),
+  });
+
+/** 获取 Agent 会话历史消息 (用于前端回放流式思考过程) */
+export const getAgentMessages = (sessionId: string) =>
+  request<AgentMessagesResponse>(
+    `/agents/sessions/${sessionId}/messages`
+  );
+
+// ---------------------------------------------------------------------------
+// 系统初始化 / 溯源链
+// ---------------------------------------------------------------------------
+
+/** /api/bootstrap 响应: 演示用户/文档与文档列表 */
+export interface BootstrapResponse {
+  demo_user_id: string;
+  demo_doc_id: string;
+  documents: Array<{
+    id: string;
+    title: string;
+    owner_id: string;
+    content: string;
+    watermark_status: number;
+    created_at: string;
+    updated_at: string;
+  }>;
+}
+
+/** 获取系统初始化数据 (演示用户 + 文档列表) */
+export const fetchBootstrap = () => request<BootstrapResponse>('/bootstrap');
+
+/** 溯源链条目 (后端 OpLogOut, snake_case) */
+export interface ProvenanceEntry {
+  id: string;
+  doc_id: string;
+  user_id: string;
+  op_type: string;
+  operation: Record<string, unknown>;
+  prev_hash: string;
+  current_hash: string;
+  created_at: string;
+}
+
+/** 获取文档溯源哈希链 */
+export const getProvenance = (docId: string) =>
+  request<ProvenanceEntry[]>(`/watermark/documents/${docId}/provenance`);
+
+/** 校验溯源链完整性 */
+export const verifyProvenance = (docId: string) =>
+  request<{ doc_id: string; valid: boolean; checked: number }>(
+    `/watermark/documents/${docId}/provenance/verify`
+  );
+
+// ---------------------------------------------------------------------------
+// 水印检测
+// ---------------------------------------------------------------------------
+
+/** 后端 /api/watermark/detect 的原始响应 (snake_case) */
+interface BackendDetectResponse {
+  is_ai_generated: boolean;
+  confidence: number;
+  watermark_chars: number;
+  model_name?: string | null;
+}
+
+/**
+ * 水印检测 (Kirchenbauer 解码)
+ * 将后端 snake_case 响应映射为共享类型 WatermarkDetectionResult。
+ */
+export const detectWatermark = async (text: string): Promise<WatermarkDetectionResult> => {
+  const raw = await request<BackendDetectResponse>('/watermark/detect', {
+    method: 'POST',
+    body: JSON.stringify({ text }),
+  });
+
+  // 与 shared/types.ts 的 WatermarkDetectionResult 对齐
+  return {
+    docId: '',
+    watermarkChars: raw.watermark_chars,
+    confidence: raw.confidence,
+    isAiGenerated: raw.is_ai_generated,
+    latencyMs: 0,
+  };
+};
+
+// ---------------------------------------------------------------------------
+// 文献检索
+// ---------------------------------------------------------------------------
+
+/** 文献条目 (后端 LiteratureOut, snake_case) */
+export interface LiteratureItem {
+  id: string;
+  title: string;
+  authors: string;
+  year: number;
+  source: string;
+  abstract: string;
+  keywords: string;
+  url?: string | null;
+}
+
+/** 检索文献 (关键词匹配标题/摘要/关键词) */
+export const searchLiterature = (
+  q: string,
+  limit = 10
+): Promise<LiteratureItem[]> =>
+  request<LiteratureItem[]>(
+    `/literature/search?q=${encodeURIComponent(q)}&limit=${limit}`
+  );
+
+/** 生成文献引文 (GB/T 7714 + BibTeX) */
+export const getCitation = (
+  litId: string
+): Promise<{ citation: string; bibtex: string }> =>
+  request<{ citation: string; bibtex: string }>(
+    `/literature/${litId}/citation`
+  );
+
+// ---------------------------------------------------------------------------
+// 导出 / 水印记录
+// ---------------------------------------------------------------------------
+
+/** 导出文档为 Markdown (含溯源元数据), 返回文本内容 */
+export const exportDocument = async (docId: string): Promise<string> => {
+  const res = await fetch(`${BASE_URL}/documents/${docId}/export`);
+  if (!res.ok) {
+    throw new Error(`导出失败: ${res.status} ${res.statusText}`);
+  }
+  return await res.text();
+};
+
+/** 文档级水印检测: 检测全文并持久化 WatermarkRecord + 溯源链日志 */
+export const detectDocumentWatermark = async (
+  docId: string
+): Promise<WatermarkDetectionResult> => {
+  const raw = await request<BackendDetectResponse>(
+    `/watermark/documents/${docId}/detect`,
+    { method: 'POST' }
+  );
+  // 与 detectWatermark 相同: 后端 DetectResponse 为 snake_case, 需映射
+  return {
+    docId,
+    watermarkChars: raw.watermark_chars,
+    confidence: raw.confidence,
+    isAiGenerated: raw.is_ai_generated,
+    latencyMs: 0,
+  };
+};
+
+/** 水印记录条目 (后端 WatermarkRecord, snake_case) */
+export interface WatermarkRecordItem {
+  id: string;
+  model_name: string;
+  gamma: number;
+  delta: number;
+  created_at: string;
+}
+
+/** 获取文档的水印检测历史记录 */
+export const getWatermarkRecords = (
+  docId: string
+): Promise<{ doc_id: string; records: WatermarkRecordItem[] }> =>
+  request<{ doc_id: string; records: WatermarkRecordItem[] }>(
+    `/watermark/documents/${docId}/records`
+  );

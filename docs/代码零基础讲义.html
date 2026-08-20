@@ -1,0 +1,1075 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>智溯系统 · 零基础代码讲义</title>
+<style>
+  :root {
+    --bg: #f7f7f5; --surface: #ffffff; --border: #e3e1da; --text: #2c2c2a;
+    --text2: #5f5e5a; --text3: #888780;
+    --blue: #185FA5; --blue-bg: #E6F1FB; --teal: #0F6E56; --teal-bg: #E1F5EE;
+    --purple: #534AB7; --purple-bg: #EEEDFE; --amber: #854F0B; --amber-bg: #FAEEDA;
+    --red: #A32D2D; --red-bg: #FCEBEB; --green: #3B6D11; --green-bg: #EAF3DE;
+    --code-bg: #f3f1ea; --mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: -apple-system, "Segoe UI", "Microsoft YaHei", "PingFang SC", sans-serif; line-height: 1.85; font-size: 15.5px; }
+  .container { max-width: 1000px; margin: 0 auto; padding: 24px 28px 80px; }
+
+  .hero { background: linear-gradient(135deg, #4a2c7a 0%, #534AB7 55%, #6d5fce 100%); color: #fff; border-radius: 16px; padding: 36px 40px; margin-bottom: 24px; }
+  .hero h1 { font-size: 26px; font-weight: 700; }
+  .hero p { margin-top: 10px; font-size: 14.5px; opacity: .92; line-height: 1.8; }
+  .hero .tags { margin-top: 14px; display: flex; flex-wrap: wrap; gap: 8px; }
+  .hero .tags span { background: rgba(255,255,255,.16); border: 1px solid rgba(255,255,255,.28); padding: 3px 12px; border-radius: 999px; font-size: 12.5px; }
+
+  .toc { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px 26px; margin-bottom: 24px; }
+  .toc h2 { font-size: 16px; margin-bottom: 12px; color: var(--purple); }
+  .toc ol { padding-left: 22px; columns: 2; column-gap: 36px; }
+  .toc li { margin: 4px 0; font-size: 13.5px; break-inside: avoid; }
+  .toc a { color: var(--text2); text-decoration: none; }
+  .toc a:hover { color: var(--purple); text-decoration: underline; }
+
+  section { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 26px 30px; margin-bottom: 22px; }
+  h2.part { font-size: 21px; color: var(--purple); border-bottom: 2px solid var(--purple-bg); padding-bottom: 10px; margin-bottom: 18px; }
+  h3 { font-size: 17px; color: var(--teal); margin: 24px 0 10px; }
+  h4 { font-size: 15px; color: var(--blue); margin: 18px 0 8px; }
+  p { margin: 10px 0; }
+  ul, ol { margin: 8px 0 8px 26px; }
+  li { margin: 6px 0; }
+  strong { color: var(--text); }
+  .hl { background: #fff3bf; padding: 0 4px; border-radius: 3px; }
+  code { font-family: var(--mono); font-size: 13px; background: var(--code-bg); padding: 2px 6px; border-radius: 4px; color: #7a2a8a; }
+  pre { background: #1e2430; color: #d8dee9; border-radius: 10px; padding: 16px 18px; overflow-x: auto; font-size: 13px; line-height: 1.65; margin: 12px 0; }
+  pre code { background: none; color: inherit; padding: 0; font-size: 13px; }
+  .kw { color: #81a1c1; } .fn { color: #88c0d0; } .st { color: #a3be8c; } .cm { color: #616e88; font-style: italic; } .num { color: #b48ead; }
+  table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 13.5px; }
+  th { background: var(--purple-bg); color: var(--purple); text-align: left; padding: 8px 12px; border: 1px solid var(--border); font-weight: 600; }
+  td { padding: 8px 12px; border: 1px solid var(--border); vertical-align: top; }
+  tr:nth-child(even) td { background: #fafaf8; }
+  .ana { background: var(--amber-bg); border-left: 4px solid var(--amber); padding: 12px 16px; border-radius: 0 8px 8px 0; margin: 14px 0; font-size: 14px; }
+  .tip { background: var(--teal-bg); border-left: 4px solid var(--teal); padding: 12px 16px; border-radius: 0 8px 8px 0; margin: 14px 0; font-size: 14px; }
+  .warn { background: var(--red-bg); border-left: 4px solid var(--red); padding: 12px 16px; border-radius: 0 8px 8px 0; margin: 14px 0; font-size: 14px; }
+  .qa { background: var(--blue-bg); border-left: 4px solid var(--blue); padding: 12px 16px; border-radius: 0 8px 8px 0; margin: 14px 0; font-size: 14px; }
+  .file-head { display: inline-block; font-family: var(--mono); font-size: 13.5px; background: var(--purple-bg); color: var(--purple); padding: 4px 12px; border-radius: 6px; margin: 8px 0; font-weight: 500; }
+  .line-note { display: block; font-size: 13px; color: var(--text2); margin: 4px 0 10px; }
+  .flow { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 14px 0; font-size: 13px; }
+  .flow .box { background: var(--purple-bg); border: 1px solid var(--purple); color: var(--purple); padding: 6px 14px; border-radius: 8px; font-weight: 500; }
+  .flow .arrow { color: var(--text3); }
+  .vocab { background: #f5f0ff; border: 1px dashed #b9aee8; border-radius: 8px; padding: 10px 14px; margin: 10px 0; font-size: 13.5px; }
+  .vocab b { color: var(--purple); }
+</style>
+</head>
+<body>
+<div class="container">
+
+<div class="hero">
+  <h1>智溯系统 · 零基础代码讲义</h1>
+  <p>给只学过一点 Python 和 C++ 的你 —— 从「语言是什么」讲起，用生活类比把你自己项目里的每一行代码拆开讲明白。<br>这份讲义假设你几乎什么都不会，但充满好奇。读完后，你将能看懂自己系统的全部代码，并且能向别人讲清楚它们。</p>
+  <div class="tags">
+    <span>语言类型对比</span><span>Python 语法速成</span><span>TypeScript 入门</span><span>后端逐文件讲解</span><span>前端逐文件讲解</span><span>数据完整旅程</span>
+  </div>
+</div>
+
+<div class="toc">
+  <h2>📖 讲义目录</h2>
+  <ol>
+    <li><a href="#p0">编程世界观：程序 = 菜谱</a></li>
+    <li><a href="#p1">语言类型：C++ / Python / JS / TS 到底差在哪</a></li>
+    <li><a href="#p2">Python 基础语法速成（用你的代码当例子）</a></li>
+    <li><a href="#p3">后端第 1 课：config.py 与 database.py</a></li>
+    <li><a href="#p4">后端第 2 课：models.py 数据表定义</a></li>
+    <li><a href="#p5">后端第 3 课：main.py 应用入口</a></li>
+    <li><a href="#p6">后端第 4 课：api 路由（文档/水印/文献/Agent）</a></li>
+    <li><a href="#p7">后端第 5 课：WebSocket 协同端点（最难的部分）</a></li>
+    <li><a href="#p8">后端第 6 课：services 服务层（哈希链/水印/Agent编排/审查）</a></li>
+    <li><a href="#p9">网页是怎么工作的：HTTP / REST / JSON / 数据库 / WebSocket</a></li>
+    <li><a href="#p10">TypeScript 基础语法速成（用你的代码当例子）</a></li>
+    <li><a href="#p11">前端第 1 课：main.tsx / vite.config.ts / App.tsx</a></li>
+    <li><a href="#p12">前端第 2 课：lib 工具层（api / collab / yjs）</a></li>
+    <li><a href="#p13">前端第 3 课：协同编辑器 CollaborativeEditor.tsx</a></li>
+    <li><a href="#p14">前端第 4 课：四个功能面板</a></li>
+    <li><a href="#p15">终极串讲：你打一个字，系统发生了什么</a></li>
+    <li><a href="#p16">给新手的调试与学习建议</a></li>
+  </ol>
+</div>
+
+<!-- ============ P0 ============ -->
+<section id="p0">
+<h2 class="part">Part 0 · 编程世界观：程序 = 菜谱</h2>
+<p>先把心态放平。写程序这件事，本质上跟写菜谱没有任何区别：</p>
+<div class="flow">
+  <span class="box">准备食材（数据）</span><span class="arrow">→</span>
+  <span class="box">按步骤处理（算法/逻辑）</span><span class="arrow">→</span>
+  <span class="box">端上桌（输出结果）</span>
+</div>
+<p>你的系统就是一本巨大的菜谱集，只是"食材"是文字、用户、文献，"步骤"是存储、转发、检测，"端上桌"是网页显示。写代码 = 把步骤写成电脑能执行的文字。</p>
+<div class="vocab"><b>几个必须认识的名词（以后到处都会遇到）：</b>
+<br>· <b>程序（Program）</b>：一份写好的、能完成任务的指令清单。
+<br>· <b>代码（Code）</b>：指令清单的文本形式，就是你现在看到的这些文件。
+<br>· <b>运行（Run）</b>：让电脑照着指令清单一步步执行。
+<br>· <b>变量（Variable）</b>：一个"贴了标签的盒子"，盒子里装数据。`x = 5` 就是"把数字 5 放进贴了 x 标签的盒子"。
+<br>· <b>函数（Function）</b>：一段"有名字的小菜谱"，可以反复调用。像榨汁机：放水果进去，出果汁。
+<br>· <b>类（Class）</b>：一个"模具"。用模具能批量做出长一样的"对象"（实例）。
+<br>· <b>模块/文件（Module）</b>：把相关代码放进一个文件，方便管理。一个 .py 文件就是一个 Python 模块。
+<br>· <b>Bug（缺陷）</b>：程序跑得不对，通常是因为某行写错了。找 bug 的过程叫"调试"（Debug）。</div>
+<div class="qa">❓ 为什么叫"语言"？<br>因为电脑只懂 0 和 1（机器码）。人写的代码需要被"翻译"成机器码。不同的语言就是不同的"翻译规则"和"表达方式"。</div>
+</section>
+
+<!-- ============ P1 ============ -->
+<section id="p1">
+<h2 class="part">Part 1 · 语言类型：C++ / Python / JS / TS 到底差在哪</h2>
+<p>你学过 Python 和 C++ 皮毛，那就从"你认识的"出发，把四种语言放进一张对比表——这张表是你理解整个项目的钥匙：</p>
+<table>
+  <tr><th>语言</th><th>翻译方式</th><th>类型检查</th><th>典型用途</th><th>一句话感觉</th></tr>
+  <tr><td><strong>C++</strong></td><td>编译型（全部翻译好再运行）</td><td>静态 + 强类型</td><td>游戏、系统软件、高性能程序</td><td>"写的时候必须把所有细节说清楚，很严格，但跑得快"</td></tr>
+  <tr><td><strong>Python</strong></td><td>解释型（边翻译边运行）</td><td>动态 + 强类型</td><td>AI、后端服务、脚本、数据分析</td><td>"写起来自由随意，跑得慢一点没关系"</td></tr>
+  <tr><td><strong>JavaScript (JS)</strong></td><td>解释型（浏览器里直接跑）</td><td>动态 + 弱类型</td><td>网页交互（前端）</td><td>"网页里唯一能跑的语言，很随性"</td></tr>
+  <tr><td><strong>TypeScript (TS)</strong></td><td>先编译成 JS 再运行</td><td>静态 + 强类型（可选）</td><td>大型前端项目</td><td>"给 JS 加上类型检查，写起来不容易犯错"</td></tr>
+</table>
+<h3>1.1 编译型 vs 解释型（翻译方式的区别）</h3>
+<ul>
+  <li><strong>编译型（C++）</strong>：把整本"菜谱"一次性翻译成机器能懂的最终版（.exe 文件），再开始做菜。好处：做菜时不用再翻译，速度快。坏处：改一行菜谱要重新翻译一遍。</li>
+  <li><strong>解释型（Python / JS）</strong>：一边读菜谱一边做菜。好处：改一行立刻生效，开发快。坏处：运行时每次都翻译，慢一些。</li>
+  <li><strong>TS 是特例</strong>：先"检查"一遍类型，再翻译成普通 JS 给浏览器跑。检查这步叫<strong>编译（tsc）</strong>，你的项目里 `npm run build` 就是干这个的。</li>
+</ul>
+<h3>1.2 动态类型 vs 静态类型（"盒子"的严格程度）</h3>
+<p>回想你学过的：C++ 里写 `int x = 5;` 必须告诉电脑"这个盒子专门装整数"。这就是<strong>静态类型</strong>——盒子的类型写死。</p>
+<p>Python 里写 `x = 5`，过一会还能写 `x = "你好"`，Python 不拦你。这就是<strong>动态类型</strong>——盒子随便装什么。方便，但也容易"你以为装的是数字，其实是个字符串"然后出错。</p>
+<p>TypeScript 的聪明之处：<strong>它让 JS 也变得有类型</strong>。比如你代码里：</p>
+<pre><code><span class="kw">interface</span> User {
+  id: string;        <span class="cm">// 这个字段必须是字符串</span>
+  username: string;
+  role: UserRole;    <span class="cm">// 这个字段必须是 UserRole 枚举</span>
+}</code></pre>
+<p>写错类型时，编译阶段就报错，而不是等网页跑起来才崩溃。<strong>这就是 TS 存在的全部意义：把错误提前暴露。</strong></p>
+<h3>1.3 强类型 vs 弱类型</h3>
+<ul>
+  <li>Python 是<strong>强类型</strong>：`"a" + 1` 会直接报错（字符串不能加数字），强迫你写 `str(1)` 转换。</li>
+  <li>JS 是<strong>弱类型</strong>：`"a" + 1` 会"自动"变成字符串 `"a1"`，不报错但结果常常出乎意料（JS 著名的坑）。</li>
+</ul>
+<div class="tip">✅ <strong>记住这张图</strong>：你的项目 = <strong>Python（后端服务）+ TypeScript（前端网页）</strong>。后端管"数据存哪里、怎么算"，前端管"用户看到什么、点什么"。两者通过"网络"对话（Part 9 会讲）。</div>
+</section>
+
+<!-- ============ P2 ============ -->
+<section id="p2">
+<h2 class="part">Part 2 · Python 基础语法速成（用你的代码当例子）</h2>
+<p>下面每个语法点，我都从你项目里找真实代码当例子。你照着顺序读，遇到不认识的就回来查这一节。</p>
+
+<h3>2.1 变量与数据类型（盒子 + 内容物）</h3>
+<pre><code><span class="cm"># 你的代码 backend/config.py 里：</span>
+APP_NAME: str = <span class="st">"Research Colab Backend"</span>   <span class="cm"># str = 字符串（文本），冒号后面是"类型注解"</span>
+DEBUG: bool = <span class="kw">True</span>                          <span class="cm"># bool = 布尔（只有 True/False 两个值）</span>
+WATERMARK_GAMMA: <span class="kw">float</span> = <span class="num">0.5</span>            <span class="cm"># float = 小数（浮点数）</span>
+WS_MAX_CLIENTS_PER_DOC: <span class="kw">int</span> = <span class="num">64</span>       <span class="cm"># int = 整数</span></code></pre>
+<ul>
+  <li><code>x: int = 5</code> 中冒号后面的 <code>int</code> 叫<strong>类型注解（Type Hint）</strong>——告诉读代码的人"这个变量应该是整数"。注意：Python 不强制检查，只是提示（但工具能帮你抓错）。</li>
+  <li>你的 C++ 经验：C++ 是 `int x = 5;`，Python 是 `x: int = 5`，语法顺序不同，意思相似。</li>
+</ul>
+<h3>2.2 列表 / 字典 / 元组 / 集合（Python 四大容器）</h3>
+<table>
+  <tr><th>容器</th><th>符号</th><th>类比</th><th>例子（来自你的代码）</th></tr>
+  <tr><td><strong>列表 list</strong></td><td><code>[ ]</code></td><td>有序的排队队伍，能加人、能按位置取</td><td><code>CORS_ORIGINS: List[str] = ["http://localhost:5173", ...]</code></td></tr>
+  <tr><td><strong>字典 dict</strong></td><td><code>{ }</code></td><td>通讯录：按"名字"查"电话"（键→值）</td><td><code>{"status": "ok", "version": "0.1.0"}</code></td></tr>
+  <tr><td><strong>元组 tuple</strong></td><td><code>( )</code></td><td>一次性打包的快递盒，不可修改</td><td><code>return (value, offset)</code></td></tr>
+  <tr><td><strong>集合 set</strong></td><td><code>{ }</code></td><td>去重后的名单，不允许重复</td><td><code>connections = set()</code>（WebSocket 房间）</td></tr>
+</table>
+<pre><code><span class="cm"># 字典的操作（watermark_engine.py 返回值）：</span>
+result = {
+    <span class="st">"is_ai_generated"</span>: <span class="kw">True</span>,
+    <span class="st">"confidence"</span>: <span class="num">0.98</span>,
+    <span class="st">"watermark_chars"</span>: <span class="num">120</span>,
+}
+result[<span class="st">"confidence"</span>]       <span class="cm"># 按键取值 → 0.98</span>
+result.<span class="fn">get</span>(<span class="st">"model_name"</span>)  <span class="cm"># 用 get 取，键不存在返回 None 而不是报错</span></code></pre>
+<div class="ana">💡 <strong>None 是什么？</strong> Python 的"空"——表示"这里什么都没有"。相当于 C++ 的 NULL。很多函数"找不到东西"时返回 None。</div>
+
+<h3>2.3 流程控制：if / for / while（给电脑下判断、下命令）</h3>
+<pre><code><span class="cm"># if 判断（academic_review.py）：</span>
+<span class="kw">if</span> stats[<span class="st">"chars"</span>] &lt; <span class="num">100</span>:
+    issues.<span class="fn">append</span>({...})     <span class="cm"># 条件成立才执行（注意缩进！）</span>
+<span class="kw">elif</span> stats[<span class="st">"chars"</span>] &lt; <span class="num">300</span>:
+    issues.<span class="fn">append</span>({...})
+<span class="kw">else</span>:
+    <span class="kw">pass</span>                     <span class="cm"># pass = "什么都不做"，占位用</span>
+
+<span class="cm"># for 循环（watermark_engine.py）：</span>
+<span class="kw">for</span> i <span class="kw">in</span> <span class="fn">range</span>(<span class="num">1</span>, <span class="fn">len</span>(tokens)):   <span class="cm"># i 从 1 数到 len(tokens)-1</span>
+    prev_token, cur_token = tokens[i - <span class="num">1</span>], tokens[i]   <span class="cm"># 同时给两个变量赋值</span>
+
+<span class="cm"># for 遍历字典/列表（main.py）：</span>
+<span class="kw">for</span> item <span class="kw">in</span> _SEED_LITERATURE:
+    db.<span class="fn">add</span>(Literature(**item))   <span class="cm"># **item 见下方 2.7</span></code></pre>
+<div class="warn">⚠️ <strong>Python 最重要的规则：缩进就是语法！</strong> 在 C++ 里缩进只是好看，Python 里缩进决定代码属于哪个块。`if` 下面缩进的代码才属于这个 if。用 4 个空格（Tab）是约定。如果你的代码缩进乱了，Python 直接报 `IndentationError`。</div>
+
+<h3>2.4 函数：def（有名字的小菜谱）</h3>
+<pre><code><span class="kw">def</span> <span class="fn">compute_hash</span>(prev_hash: str, operation: dict, timestamp) -> str:
+    <span class="cm">"""三引号里是文档字符串（docstring），说明这个函数干嘛的"""</span>
+    op_json = json.<span class="fn">dumps</span>(operation, ensure_ascii=<span class="kw">False</span>, sort_keys=<span class="kw">True</span>)
+    payload = <span class="st">f"</span>{prev_hash}<span class="st">|</span>{op_json}<span class="st">|</span>{ts:.6f}<span class="st">|</span>{salt_value}<span class="st">"</span>
+    <span class="kw">return</span> hashlib.<span class="fn">sha256</span>(payload.<span class="fn">encode</span>(<span class="st">"utf-8"</span>)).<span class="fn">hexdigest</span>()</code></pre>
+<ul>
+  <li><code>def 函数名(参数):</code> 定义函数；<code>return</code> 返回结果（没有 return 就返回 None）；</li>
+  <li><code>-&gt; str</code> 表示"这个函数返回字符串"（类型注解）；</li>
+  <li><strong>f-string</strong>：<code>f"..."</code> 里的 <code>{变量}</code> 会被替换成变量的值。`{ts:.6f}` 表示把 ts 格式化为 6 位小数。这是 Python 3.6+ 最常用的字符串拼接方式（比 C++ 的 cout &lt;&lt; 或 sprintf 方便得多）。</li>
+</ul>
+
+<h3>2.5 类与对象（模具与产品）</h3>
+<pre><code><span class="kw">class</span> <span class="fn">WatermarkEngine</span>:
+    <span class="kw">def</span> <span class="fn">__init__</span>(self, gamma=<span class="kw">None</span>):   <span class="cm"># 构造函数：造对象时自动执行</span>
+        self.gamma = gamma <span class="kw">if</span> gamma <span class="kw">is not</span> <span class="kw">None</span> <span class="kw">else</span> settings.WATERMARK_GAMMA
+
+    <span class="kw">def</span> <span class="fn">detect_watermark</span>(self, text: str):   <span class="cm"># 方法：这个模具生产出来的对象都能调</span>
+        tokens = self.<span class="fn">_tokenize</span>(text)
+        <span class="kw">return</span> {<span class="st">"is_ai_generated"</span>: ...}</code></pre>
+<ul>
+  <li><code>class 类名:</code> 定义"模具"；<code>__init__</code> 是构造函数——每次 <code>WatermarkEngine()</code> 造新对象时自动调用；</li>
+  <li><code>self</code> 指"这个对象自己"——就像 C++ 的 <code>this</code>。所有方法第一个参数都是 self；</li>
+  <li>方法名带下划线 <code>_tokenize</code> 表示"内部用的，别从外面调"（约定俗成，不是强制）。</li>
+</ul>
+
+<h3>2.6 模块与导入（import = 从别的文件拿工具）</h3>
+<pre><code><span class="kw">import</span> hashlib                    <span class="cm"># 引入 Python 自带的标准库</span>
+<span class="kw">import</span> numpy <span class="kw">as</span> np                <span class="cm"># 引入第三方库，并给它起个短名 np</span>
+<span class="kw">from</span> config <span class="kw">import</span> settings       <span class="cm"># 从 config 这个文件里拿 settings 变量</span>
+<span class="kw">from</span> services.oplog_chain <span class="kw">import</span> OpLogHashChain, oplog_append_lock</code></pre>
+<p><code>from A import B</code> = "从模块 A 里拿名字 B 来用"。相当于 C++ 的 <code>#include</code>。你的项目就是一堆文件互相 import 拼起来的。</p>
+
+<h3>2.7 特殊语法：* 和 **（拆包裹）</h3>
+<pre><code><span class="cm"># 在 main.py 种子数据里：</span>
+item = {<span class="st">"title"</span>: <span class="st">"A Watermark for Large Language Models"</span>, <span class="st">"year"</span>: <span class="num">2023</span>, ...}
+Literature(**item)
+<span class="cm"># 等价于：Literature(title="...", year=2023, ...)</span>
+<span class="cm"># **dict 把字典"拆开"变成关键字参数；*list 把列表拆成位置参数</span></code></pre>
+
+<h3>2.8 异常处理：try / except（防翻车）</h3>
+<pre><code><span class="kw">try</span>:
+    <span class="kw">import</span> asyncpg                 <span class="cm"># 试试能不能导入</span>
+    engine = <span class="fn">create_async_engine</span>(...)
+<span class="kw">except</span> ImportError:               <span class="cm"># 如果导入失败（没装这个库）</span>
+    <span class="kw">pass</span>                          <span class="cm"># 不报错，走下面的 SQLite 分支</span></code></pre>
+<p>类比：`try` = "尝试做菜"，`except` = "如果锅糊了就……"。程序运行中出错会"抛异常"，不接住程序就崩溃；接住（except）就能优雅处理。</p>
+
+<h3>2.9 async / await（异步：不等饭熟就去做别的事）—— 这是后端最核心的概念</h3>
+<p>想象你去餐厅点餐：<strong>同步</strong> = 你站在柜台前干等，直到菜做好（期间你什么都干不了）。<strong>异步</strong> = 你点完单拿个号，先玩手机，菜好了服务员喊你。</p>
+<pre><code><span class="kw">async def</span> <span class="fn">search</span>(self, query):      <span class="cm"># async 标记：这是个"异步函数"</span>
+    resp = <span class="kw">await</span> client.<span class="fn">get</span>(ARXIV_API, params=params)  <span class="cm"># await = "等它完成，但期间不阻塞别人"</span>
+    <span class="kw">return</span> self.<span class="fn">_parse_feed</span>(resp.text)</code></pre>
+<ul>
+  <li><code>async def</code> 定义的函数叫<strong>协程</strong>——可以"暂停"的函数；</li>
+  <li><code>await 某某()</code> = "调用某某异步函数，等它出结果，等待期间让出 CPU 给别人"；</li>
+  <li>为什么后端全用 async？因为服务器同一时刻要服务很多用户。如果请求 arXiv 时干等 15 秒，其他用户全部卡死。用了 async，等待时服务器去处理别的请求，体验就流畅了；</li>
+  <li>类比：C++ 你学过的多线程是一种并发，async/await 是另一种更轻量的并发（单线程内"轮流干活"）。</li>
+</ul>
+
+<h3>2.10 装饰器 @（给函数"加特效"）</h3>
+<pre><code><span class="kw">@app.get</span>(<span class="st">"/api/health"</span>)     <span class="cm"># 装饰器：给下面这个函数"贴标签"</span>
+<span class="kw">async def</span> <span class="fn">health_check</span>():
+    <span class="kw">return</span> {<span class="st">"status"</span>: <span class="st">"ok"</span>}</code></pre>
+<p>装饰器就是"在函数头上写一行 @xxx，给函数附加功能"。这里 <code>@app.get("/api/health")</code> 告诉 FastAPI：<strong>"当用户访问 /api/health 这个网址时，就调用下面的函数"</strong>。你后端所有接口都是这么注册的。</p>
+
+<h3>2.11 上下文管理器：with（自动开关门）</h3>
+<pre><code><span class="kw">async with</span> async_session_factory() <span class="kw">as</span> db:
+    ...  <span class="cm"># 用数据库</span>
+<span class="cm"># 退出 with 块时自动关闭数据库会话，不用手动关</span></code></pre>
+<p><code>with 东西 as 变量:</code> = "用这个东西，用完自动收拾"。类比：进房间时自动开灯，出房间自动关灯。你的代码里大量用它管理数据库连接和锁。</p>
+
+<h3>2.12 类型注解的进阶：Optional / List / Dict / Enum / TypedDict</h3>
+<pre><code><span class="kw">from</span> typing <span class="kw">import</span> Optional, List
+
+Optional[str]     <span class="cm"># = "可能是字符串，也可能是 None"</span>
+List[str]         <span class="cm"># = "字符串的列表"</span>
+Dict[str, int]    <span class="cm"># = "键是字符串、值是整数的字典"</span>
+
+<span class="kw">class</span> <span class="fn">AgentType</span>(str, Enum):     <span class="cm"># 枚举：一组有名字的常量</span>
+    RESEARCH = <span class="st">"research"</span>
+    WRITER = <span class="st">"writer"</span>
+
+<span class="kw">class</span> <span class="fn">State</span>(TypedDict):         <span class="cm"># 类型化字典：规定字典有哪些键、什么类型</span>
+    doc_id: str
+    draft: Optional[str]</code></pre>
+<div class="tip">✅ 读到这里，你已经认识 Python 的全部核心语法了！后面的后端代码无非是这些语法点的排列组合。</div>
+</section>
+
+<!-- ============ P3 ============ -->
+<section id="p3">
+<h2 class="part">Part 3 · 后端第 1 课：config.py 与 database.py（配置和数据库）</h2>
+
+<h3>3.1 <span class="file-head">backend/config.py</span> —— 全项目的"设置中心"</h3>
+<p>这个文件干的事：<strong>集中存放所有可调参数</strong>。为什么要单独一个文件？因为"数据库地址""水印参数"这些值，如果散落在各个文件里，改一个参数要翻遍全项目；集中起来，改一处就够。</p>
+<pre><code><span class="kw">class</span> <span class="fn">Settings</span>(BaseSettings):      <span class="cm"># 继承 pydantic 的 BaseSettings</span>
+    APP_NAME: str = <span class="st">"Research Colab Backend"</span>   <span class="cm"># 应用名字，默认值</span>
+    DEBUG: bool = <span class="kw">True</span>                          <span class="cm"># 调试模式开关</span>
+    CORS_ORIGINS: List[str] = [<span class="st">"http://localhost:5173"</span>]  <span class="cm"># 允许哪些网站访问后端</span>
+    DATABASE_URL: str = <span class="st">"postgresql+asyncpg://postgres:postgres@localhost:5432/research_colab"</span>
+    LLM_API_KEY: str = <span class="st">""</span>                        <span class="cm"># 空字符串 = 没配，预留</span>
+    WATERMARK_GAMMA: <span class="kw">float</span> = <span class="num">0.5</span>              <span class="cm"># 水印"绿名单"比例（Part 8 讲）</span>
+    HASHCHAIN_SALT: str = <span class="st">"research-colab-oplog-salt"</span>  <span class="cm"># 哈希链加盐（Part 8 讲）</span></code></pre>
+<ul>
+  <li><strong>Pydantic 是什么</strong>：一个帮你"校验数据格式"的库。继承 <code>BaseSettings</code> 后，它能自动从环境变量或 <code>.env</code> 文件读取配置——你在系统里设了 <code>LLM_API_KEY</code> 环境变量，它就能覆盖默认值。</li>
+  <li><strong>CORS 是什么</strong>：浏览器的安全规则——"网页 A 默认不允许随便访问网页 B 的数据"。你的前端跑在 5173 端口，后端在 8000 端口，属于"两个网站"，所以必须在这里明确说"允许 5173 访问我"，否则浏览器会拦截所有请求。</li>
+</ul>
+<pre><code><span class="kw">@lru_cache</span>                     <span class="cm"># 缓存装饰器：只加载一次，之后直接返回缓存</span>
+<span class="kw">def</span> <span class="fn">get_settings</span>() -> Settings:
+    <span class="kw">return</span> Settings()
+
+settings = <span class="fn">get_settings</span>()      <span class="cm"># 模块加载时就创建好，全项目共用这一个实例</span></code></pre>
+<div class="ana">💡 <strong>为什么要 lru_cache？</strong> 如果每次都新建 Settings，就要反复读文件。lru_cache 保证"第一次调用后记住结果，以后直接给"。这是"单例模式"的一种实现——整个程序只有一份配置。</div>
+
+<h3>3.2 <span class="file-head">backend/database.py</span> —— 连接数据库，还带"自动换路"功能</h3>
+<p>先回答一个基础问题：<strong>什么是数据库？</strong></p>
+<p>数据库 = 一个专门存数据的大仓库，支持"存、取、改、删、查"。你的系统用 SQLAlchemy 这个工具来操作它。SQLAlchemy 是"对象关系映射（ORM）"——<strong>让你用 Python 对象（如 <code>Document(...)</code>）代替写 SQL 语句</strong>来操作数据库。</p>
+<pre><code><span class="cm"># 关键函数：创建"数据库引擎"（引擎 = 通往数据库的管道）</span>
+<span class="kw">def</span> <span class="fn">_create_engine</span>():
+    <span class="kw">try</span>:
+        <span class="kw">import</span> asyncpg              <span class="cm"># ① 试着加载 PostgreSQL 驱动</span>
+        engine = <span class="fn">create_async_engine</span>(
+            pg_url,
+            pool_size=<span class="num">10</span>,           <span class="cm"># 同时保持 10 条连接待命</span>
+            max_overflow=<span class="num">20</span>,        <span class="cm"># 忙时可临时最多加到 30 条</span>
+            pool_pre_ping=<span class="kw">True</span>,     <span class="cm"># 用之前先"ping"一下连接是否还活着</span>
+            connect_args={<span class="st">"timeout"</span>: <span class="num">3</span>},  <span class="cm"># 3 秒连不上就算失败</span>
+        )
+        ...
+        ok = <span class="fn">asyncio.run</span>(<span class="fn">_probe</span>())   <span class="cm"># ② 真的连一次试试（SELECT 1）</span>
+        <span class="kw">if</span> ok: <span class="kw">return</span> engine        <span class="cm"># 连上了，就用 PostgreSQL</span>
+    <span class="kw">except</span> ImportError: ...
+    <span class="cm"># ③ 走到这里 = PostgreSQL 不可用 → 换成 SQLite 文件数据库</span>
+    engine = <span class="fn">create_async_engine</span>(<span class="st">"sqlite+aiosqlite:///./research_colab.db"</span>)</code></pre>
+<ul>
+  <li><strong>连接池（pool）</strong>：建数据库连接很贵（像打一次长途电话），所以提前准备 10 条连接复用。类比：银行提前开好 10 个窗口，来了客户直接用，不用现场开窗口。</li>
+  <li><strong>PostgreSQL vs SQLite</strong>：PostgreSQL 是"正规军"（正式服务器用）；SQLite 是"一个文件就是整个数据库"（学习/演示用）。你的项目设计成：<strong>装没装 PostgreSQL 都能跑</strong>——这就是"自动回退"的意义。</li>
+  <li><strong>SQLite 的坑</strong>：SQLite 默认不检查外键关系，代码里用 <code>event.listens_for</code> 在每个连接建立时执行 <code>PRAGMA foreign_keys=ON</code> 打开它。</li>
+</ul>
+<pre><code><span class="cm"># FastAPI 依赖注入：每个请求自动获得一个数据库会话</span>
+<span class="kw">async def</span> <span class="fn">get_db</span>():
+    <span class="kw">async with</span> async_session_factory() <span class="kw">as</span> session:
+        <span class="kw">yield</span> session     <span class="cm"># yield = "先把会话交给调用方用，用完再回来收尾"</span></code></pre>
+<div class="ana">💡 <strong>yield 是什么？</strong> 普通函数 return 一次就结束；带 yield 的函数（生成器）可以"暂停——交出东西——再恢复"。这里的意思：<code>get_db</code> 把 session 交给接口函数用，接口函数结束后，代码回来自动关闭 session。<code>async with ... as db:</code> 是 FastAPI 依赖的标准写法，你在所有 API 文件里都会看到 <code>db: AsyncSession = Depends(get_db)</code>——<code>Depends</code> 就是"FastAPI 帮我调用 get_db 拿会话"。</div>
+</section>
+
+<!-- ============ P4 ============ -->
+<section id="p4">
+<h2 class="part">Part 4 · 后端第 2 课：models.py —— 用 Python 类描述"数据库长什么样"</h2>
+<p>回忆 3.2 说的 ORM：<strong>模型（Model）= 数据库里一张表的"图纸"</strong>。你定义一个 Python 类，SQLAlchemy 就照这个类建一张数据库表。</p>
+<pre><code><span class="kw">class</span> <span class="fn">Document</span>(Base):          <span class="cm"># 继承 Base（数据库的公共基类）</span>
+    __tablename__ = <span class="st">"documents"</span>  <span class="cm"># 表名</span>
+
+    id: Mapped[uuid.UUID] = <span class="fn">mapped_column</span>(
+        UUID_TYPE, primary_key=<span class="kw">True</span>, default=<span class="fn">_gen_uuid</span>
+    )                              <span class="cm"># 主键，默认自动生成 UUID</span>
+    title: Mapped[str] = <span class="fn">mapped_column</span>(String(<span class="num">512</span>), nullable=<span class="kw">False</span>)
+                                   <span class="cm"># 标题：最长 512 字符，不能为空</span>
+    owner_id: Mapped[uuid.UUID] = <span class="fn">mapped_column</span>(
+        UUID_TYPE, ForeignKey(<span class="st">"users.id"</span>, ondelete=<span class="st">"CASCADE"</span>)
+    )                              <span class="cm"># 外键：指向 users 表的 id</span>
+    content: Mapped[str] = <span class="fn">mapped_column</span>(Text, default=<span class="st">""</span>)
+                                   <span class="cm"># 正文：不限长度的大文本</span>
+    watermark_status: Mapped[<span class="kw">int</span>] = <span class="fn">mapped_column</span>(SmallInteger, default=<span class="num">0</span>)
+                                   <span class="cm"># 0=没检测 1=含AI水印 2=纯人类</span></code></pre>
+<ul>
+  <li><code>Mapped[类型]</code>：SQLAlchemy 2.0 的新写法，告诉它"这个属性映射成什么数据库类型"；</li>
+  <li><strong>主键（Primary Key）</strong>：每条记录的唯一身份证号，不能重复；</li>
+  <li><strong>外键（Foreign Key）</strong>：指向别的表。`ondelete="CASCADE"` 意思是：<strong>删掉 users 表里的用户时，这个用户的所有文档自动一起删掉</strong>（级联删除）；</li>
+  <li><strong>UUID 主键</strong>：全球唯一的随机 ID（如 <code>3f2a1b...</code>），而不是 1、2、3 递增。为什么？协同系统里多个客户端可能同时创建文档，用自增 ID 会撞车，UUID 各造各的也绝不会重复。你的 C++ 类比：相当于每个对象一个全局唯一编号。</li>
+</ul>
+<h3>4.1 你系统的 7 张表（一张图看懂）</h3>
+<table>
+  <tr><th>表名</th><th>存什么</th><th>关键字段</th></tr>
+  <tr><td>users</td><td>用户（含 AI 账号）</td><td>username、email、role（admin/researcher/ai_agent...）</td></tr>
+  <tr><td>documents</td><td>文档</td><td>title、content（正文）、yjs_state（协同状态，预留）、watermark_status</td></tr>
+  <tr><td>document_collaborators</td><td>文档和协作者的对应关系</td><td>document_id + user_id（谁可以编辑哪个文档）</td></tr>
+  <tr><td>op_logs</td><td><strong>操作日志（溯源链）</strong></td><td>op_type、operation（JSON）、<strong>prev_hash + current_hash</strong></td></tr>
+  <tr><td>watermark_records</td><td>水印检测记录</td><td>model_name、gamma、delta、secret_key</td></tr>
+  <tr><td>literature</td><td>文献库（种子数据）</td><td>title、authors、year、abstract、keywords</td></tr>
+  <tr><td>permission_configs</td><td>权限配置（预留）</td><td>collab_mode、watermark_policy、export_policy</td></tr>
+</table>
+<div class="tip">✅ 一张表 = 一个 Excel 工作表；一行 = 一条记录（一个用户/一篇文档）；一列 = 一个字段。ORM 让你用 Python 类当"表结构说明书"，SQLAlchemy 自动生成建表 SQL。</div>
+</section>
+
+<!-- ============ P5 ============ -->
+<section id="p5">
+<h2 class="part">Part 5 · 后端第 3 课：main.py —— 应用启动时的"开幕仪式"</h2>
+<p>main.py 是后端的<strong>入口</strong>——`uvicorn main:app` 就是从这里启动整个服务。它做了 4 件事：</p>
+<h3>5.1 lifespan：启动时自动执行的事</h3>
+<pre><code><span class="kw">@asynccontextmanager</span>           <span class="cm"># 装饰器：把下面的函数变成"异步上下文管理器"</span>
+<span class="kw">async def</span> <span class="fn">lifespan</span>(app):
+    <span class="kw">await</span> <span class="fn">init_db</span>()            <span class="cm"># ① 建表（按 models.py 的图纸）</span>
+    <span class="kw">await</span> <span class="fn">seed_demo_data</span>()    <span class="cm"># ② 塞入演示用户 + 演示文档</span>
+    <span class="kw">await</span> <span class="fn">seed_literature</span>()  <span class="cm"># ③ 塞入 8 篇文献种子数据</span>
+    <span class="kw">yield</span>                    <span class="cm"># ④ 服务器开始运行（yield 前=启动时，yield 后=关闭时）</span></code></pre>
+<p>类比：餐厅开业前要布置桌椅（建表）、摆好招牌菜（种子数据），然后才开始营业。<code>yield</code> 之前是"营业准备"，之后是"打烊收拾"。</p>
+<h3>5.2 种子数据：为什么是"幂等"的</h3>
+<pre><code><span class="kw">async def</span> <span class="fn">seed_demo_data</span>():
+    user = <span class="kw">await</span> db.<span class="fn">get</span>(User, DEMO_USER_ID)   <span class="cm"># 先查：这个用户存在吗？</span>
+    <span class="kw">if</span> user <span class="kw">is</span> <span class="kw">None</span>:                          <span class="cm"># 不存在才创建</span>
+        user = User(id=DEMO_USER_ID, username=<span class="st">"demo-researcher"</span>, ...)
+        db.<span class="fn">add</span>(user)</code></pre>
+<p><strong>幂等（Idempotent）</strong> = "执行多少次，结果都一样"。因为先查后建，所以服务重启 100 次也不会插入 100 个演示用户。<code>DEMO_USER_ID</code> 是固定 UUID——这样前端能预先知道"演示用户是谁"。</p>
+<h3>5.3 路由挂载：把 4 个功能文件"装"进来</h3>
+<pre><code>app.<span class="fn">include_router</span>(documents_api.router)   <span class="cm"># 装文档相关接口</span>
+app.<span class="fn">include_router</span>(agents_api.router)      <span class="cm"># 装 Agent 相关接口</span>
+app.<span class="fn">include_router</span>(watermark_api.router)   <span class="cm"># 装水印/溯源相关接口</span>
+app.<span class="fn">include_router</span>(literature_api.router)  <span class="cm"># 装文献相关接口</span>
+app.<span class="fn">include_router</span>(collaborative_router)   <span class="cm"># 装 WebSocket 协同接口</span></code></pre>
+<p>每个 api 文件里都有一个 <code>router = APIRouter(prefix="/api/xxx")</code>，main.py 把它们统一装到 app 上。这样不同功能分散在不同文件，互不干扰。</p>
+<pre><code><span class="kw">@app.get</span>(<span class="st">"/api/health"</span>)
+<span class="kw">async def</span> <span class="fn">health_check</span>():
+    <span class="kw">return</span> {<span class="st">"status"</span>: <span class="st">"ok"</span>, <span class="st">"version"</span>: settings.APP_VERSION}</code></pre>
+<p>健康检查 = 让运维/前端确认"你还活着吗"。浏览器访问 <code>http://localhost:8000/api/health</code> 会看到 <code>{"status":"ok",...}</code>——这就是"服务器活着"的证据。</p>
+</section>
+
+<!-- ============ P6 ============ -->
+<section id="p6">
+<h2 class="part">Part 6 · 后端第 4 课：api 路由文件 —— 每个网址背后是什么</h2>
+<p>这一节你会反复看到同一个模式，先记住它：</p>
+<pre><code><span class="kw">@router.get</span>(<span class="st">"/documents"</span>)              <span class="cm"># 用户 GET /api/documents 时调用</span>
+<span class="kw">async def</span> <span class="fn">list_documents</span>(db = <span class="fn">Depends</span>(get_db)):
+    stmt = <span class="fn">select</span>(Document)             <span class="cm"># "我要查 documents 表"</span>
+    result = <span class="kw">await</span> db.<span class="fn">execute</span>(stmt)   <span class="cm"># 执行查询</span>
+    <span class="kw">return</span> <span class="fn">list</span>(result.<span class="fn">scalars</span>().<span class="fn">all</span>())  <span class="cm"># 返回结果列表</span></code></pre>
+<p>整个 API 层的套路就 4 步：<strong>① 装饰器声明网址 → ② 拿数据库会话 → ③ 查/改数据库 → ④ 把结果变成 JSON 返回</strong>。下面逐个文件看。</p>
+
+<h3>6.1 <span class="file-head">api/documents.py</span> —— 文档的增删改查</h3>
+<pre><code><span class="cm"># 用 Pydantic 定义"请求体长什么样"（用户发来的数据格式）</span>
+<span class="kw">class</span> <span class="fn">DocumentCreate</span>(BaseModel):
+    title: str = Field(..., min_length=<span class="num">1</span>, max_length=<span class="num">512</span>)  <span class="cm"># ... 表示必填</span>
+    owner_id: uuid.UUID
+    content: str = <span class="st">""</span></code></pre>
+<ul>
+  <li><strong>Pydantic 模型（BaseModel）</strong>：数据"安检门"。用户 POST 来的 JSON 必须通过这个格式检查，不合格直接报 422 错误，防止垃圾数据进数据库；</li>
+  <li><code>Field(...)</code> 里的 <code>...</code> 是"必填"的意思；min_length/max_length 是长度限制。</li>
+</ul>
+<pre><code><span class="kw">@router.patch</span>(<span class="st">"/{doc_id}"</span>)          <span class="cm"># PATCH = 部分更新（只改传了的字段）</span>
+<span class="kw">async def</span> <span class="fn">update_document</span>(doc_id, payload, db):
+    <span class="kw">async with</span> <span class="fn">oplog_append_lock</span>(doc_id):      <span class="cm"># 加锁（防止并发写乱套）</span>
+        doc = <span class="kw">await</span> db.<span class="fn">get</span>(Document, doc_id)   <span class="cm"># 按 ID 查文档</span>
+        <span class="kw">if</span> doc <span class="kw">is</span> <span class="kw">None</span>: <span class="kw">raise</span> HTTPException(<span class="num">404</span>, ...)  <span class="cm"># 查不到就报"没找到"</span>
+        data = payload.<span class="fn">model_dump</span>(exclude_unset=<span class="kw">True</span>)  <span class="cm"># 只取用户传了的字段</span>
+        <span class="kw">for</span> field, value <span class="kw">in</span> data.<span class="fn">items</span>():  <span class="cm"># 逐个字段写回文档对象</span>
+            <span class="fn">setattr</span>(doc, field, value)
+        <span class="kw">if</span> content_changed:
+            <span class="kw">await</span> <span class="fn">_append_content_log</span>(...)  <span class="cm"># 内容变了→写一条溯源日志</span>
+        <span class="kw">await</span> db.<span class="fn">commit</span>()   <span class="cm"># 提交（保存）</span></code></pre>
+<ul>
+  <li><code>HTTPException(404, ...)</code>：找不到资源时返回 HTTP 状态码 404（网页里"404 页面不存在"就是它）；</li>
+  <li><strong>commit（提交）</strong>：数据库操作默认"先记在草稿上"，commit 才真正写入。类比：改完 Word 文档必须点"保存"；</li>
+  <li><strong>加锁 oplog_append_lock</strong>：因为溯源日志要求"上一条的下一条"，并发同时写会乱。锁保证同一时间只有一个请求在写这个文档的日志（Part 8 详细讲）。</li>
+</ul>
+
+<h3>6.2 <span class="file-head">api/watermark.py</span> —— 水印检测 + 溯源链</h3>
+<pre><code><span class="kw">@router.post</span>(<span class="st">"/documents/{doc_id}/detect"</span>)
+<span class="kw">async def</span> <span class="fn">detect_document_watermark</span>(doc_id, db):
+    <span class="kw">async with</span> <span class="fn">oplog_append_lock</span>(doc_id):          <span class="cm"># 同样加锁</span>
+        doc = <span class="kw">await</span> db.<span class="fn">get</span>(Document, doc_id)
+        engine = WatermarkEngine()                     <span class="cm"># 造一个水印引擎</span>
+        result = engine.<span class="fn">detect_watermark</span>(doc.content <span class="kw">or</span> <span class="st">""</span>)  <span class="cm"># 检测全文</span>
+        db.<span class="fn">add</span>(WatermarkRecord(...))               <span class="cm"># 存一条检测记录</span>
+        db.<span class="fn">add</span>(OpLog(op_type=<span class="st">"watermark_checked"</span>, ...))  <span class="cm"># 溯源日志：检测过水印</span>
+        <span class="kw">await</span> db.<span class="fn">commit</span>()</code></pre>
+<p>注意这里的产品设计：<strong>"检测水印"这件事本身也被记入溯源日志</strong>（op_type = watermark_checked）。这样将来有人问"这篇文档什么时候被检测过、结论是什么"，链条里全有记录——证据链闭环。</p>
+
+<h3>6.3 <span class="file-head">api/literature.py</span> —— 文献检索</h3>
+<pre><code><span class="kw">@router.get</span>(<span class="st">"/search"</span>)
+<span class="kw">async def</span> <span class="fn">search_literature</span>(q: str = <span class="st">""</span>, limit: <span class="kw">int</span> = <span class="num">10</span>, db=...):
+    stmt = <span class="fn">select</span>(Literature).<span class="fn">order_by</span>(Literature.year.<span class="fn">desc</span>())
+    <span class="kw">if</span> keyword:
+        like = <span class="st">f"%</span>{keyword}<span class="st">%"</span>     <span class="cm"># %是SQL的"任意字符"通配符，模糊匹配</span>
+        stmt = stmt.<span class="fn">where</span>(<span class="fn">or_</span>(Literature.title.<span class="fn">ilike</span>(like), ...))
+    <span class="kw">return</span> <span class="fn">list</span>((<span class="kw">await</span> db.<span class="fn">execute</span>(stmt)).<span class="fn">scalars</span>().<span class="fn">all</span>())</code></pre>
+<ul>
+  <li><code>ilike</code>：SQL 的"包含匹配"（不区分大小写）。`%水印%` 匹配任何"含有'水印'两字"的字符串；</li>
+  <li><code>or_</code>：SQL 的 OR（或）——标题里含关键词 OR 摘要里含关键词 OR 关键词字段里含关键词，任一命中就召回。</li>
+</ul>
+
+<h3>6.4 <span class="file-head">api/agents.py</span> —— 触发 Agent（AI 助手）</h3>
+<pre><code>orchestrator = OrchestratorService()   <span class="cm"># 全局唯一的"Agent 总指挥"</span>
+
+<span class="kw">@router.post</span>(<span class="st">"/invoke"</span>, status_code=<span class="num">202</span>)
+<span class="kw">async def</span> <span class="fn">invoke_agent</span>(payload):
+    session_id = <span class="kw">await</span> orchestrator.<span class="fn">start_session</span>(...)  <span class="cm"># 启动 Agent 任务</span>
+    <span class="kw">return</span> {<span class="st">"accepted"</span>: <span class="kw">True</span>, <span class="st">"session_id"</span>: session_id}</code></pre>
+<p>状态码 <code>202 Accepted</code> 的语义是"我收到任务了，正在处理"（区别于 200 的"已经完成了"）。当前实现是同步跑完再返回，但代码预留了"后台执行"的接口设计（注释里的 TODO）。</p>
+</section>
+
+<!-- ============ P7 ============ -->
+<section id="p7">
+<h2 class="part">Part 7 · 后端第 5 课：WebSocket 协同端点（全项目最难、最有价值的部分）</h2>
+<p>先补充概念：<strong>HTTP 和 WebSocket 有什么区别？</strong></p>
+<ul>
+  <li><strong>HTTP（普通接口）</strong>：像写信——你写一封（请求），对方回一封（响应），然后结束。每次都要重新"寄信"。</li>
+  <li><strong>WebSocket（长连接）</strong>：像打电话——接通后一直保持，双方随时都能说话。协同编辑需要"A 打一个字，B 的屏幕立刻出现"，必须用电话（WebSocket）。</li>
+</ul>
+<h3>7.1 字节（Byte）与十六进制 —— 看懂协议的前提</h3>
+<p>网络上传送的是<strong>字节</strong>。一个字节是 8 个 0/1，通常用两位十六进制表示，如 <code>0x00</code>（= 十进制的 0）、<code>0x01</code>（= 1）。你的代码里：</p>
+<pre><code>MSG_SYNC = <span class="num">0</span>       <span class="cm"># 0x00 表示"同步消息"</span>
+MSG_AWARENESS = <span class="num">1</span>   <span class="cm"># 0x01 表示"光标/在线状态消息"</span>
+MSG_AUTH = <span class="num">2</span>       <span class="cm"># 0x02 表示"鉴权消息"（预留）</span></code></pre>
+<p>协议 = 双方约定好的"暗号规则"：<strong>消息第一个字节告诉我这是什么类型的消息</strong>，后面跟具体内容。就像快递单：第一位数字是"品类"，后面是详细地址。</p>
+<h3>7.2 varUint 编码（变长整数）</h3>
+<pre><code><span class="kw">def</span> <span class="fn">encode_var_uint</span>(value):     <span class="cm"># 把一个整数编码成字节</span>
+    out = <span class="fn">bytearray</span>()
+    <span class="kw">while True</span>:
+        b = value & <span class="num">0x7F</span>       <span class="cm"># 取低 7 位（0x7F = 0111 1111）</span>
+        value >>= <span class="num">7</span>            <span class="cm"># 右移 7 位（去掉已处理的 7 位）</span>
+        <span class="kw">if</span> value:
+            out.<span class="fn">append</span>(b | <span class="num">0x80</span>)  <span class="cm"># 还有剩余，加"继续"标记（最高位=1）</span>
+        <span class="kw">else</span>:
+            out.<span class="fn">append</span>(b)       <span class="cm"># 没剩余了，这是最后一个字节</span>
+            <span class="kw">break</span>
+    <span class="kw">return</span> <span class="fn">bytes</span>(out)</code></pre>
+<div class="ana">💡 <strong>为什么要有"变长整数"？</strong> 数字 0~127 只需要 1 个字节；大数字如 65536 需要 3 个字节。固定用 4 字节会浪费空间，变长编码按需分配，网络传输更省流量。&（按位与）、&gt;&gt;=（右移）、|（按位或）都是 C++ 里你学过的位运算——这里只是换了个用途。</div>
+<h3>7.3 完整消息流程（一次协同同步的完整故事）</h3>
+<div class="flow">
+  <span class="box">客户端1连上</span><span class="arrow">→</span><span class="box">发 SYNC_STEP1（我的状态向量）</span><span class="arrow">→</span><span class="box">服务端回空 update（00 01 02 00 00）</span><span class="arrow">→</span><span class="box">synced 就绪</span>
+</div>
+<div class="flow">
+  <span class="box">客户端1打字</span><span class="arrow">→</span><span class="box">发 SYNC_UPDATE（增量）</span><span class="arrow">→</span><span class="box">服务端转发给客户端2（跳过发送者）</span><span class="arrow">→</span><span class="box">客户端2应用 → 屏幕更新</span>
+</div>
+<pre><code><span class="cm"># 服务端收到 SYNC_UPDATE 后做的事：</span>
+<span class="kw">elif</span> sync_type == SYNC_UPDATE:
+    <span class="kw">if</span> <span class="kw">not</span> payload: <span class="kw">return</span>
+    <span class="kw">await</span> room.<span class="fn">broadcast_update</span>(
+        doc_id,
+        <span class="fn">bytes</span>([MSG_SYNC, SYNC_UPDATE]) + <span class="fn">encode_var_uint8_array</span>(payload),
+        exclude=ws,     <span class="cm"># 关键：不把消息传回给发送者本人！</span>
+    )</code></pre>
+<div class="warn">⚠️ <strong>这里的"踩坑"值得记住</strong>：如果服务端把消息也转发回发送者，就会形成"我转发你→你收到又转发我→我又收到再转发你……"的无限循环（消息风暴）。所以必须 <code>exclude=ws</code> 排除发送者。另一个坑：Yjs 的"空更新"必须编码成 <code>[0x00, 0x00]</code>，少一个字节客户端解析就会崩溃——这些注释里都记录着血泪史。</div>
+<h3>7.4 房间（Room）概念</h3>
+<pre><code><span class="kw">class</span> <span class="fn">RoomManager</span>:
+    <span class="kw">def</span> <span class="fn">__init__</span>(self):
+        self._connections = {}    <span class="cm"># 字典：doc_id → 该文档的"房间"（连接集合）</span>
+    <span class="kw">async def</span> <span class="fn">connect</span>(self, doc_id, ws):
+        <span class="kw">await</span> ws.<span class="fn">accept</span>(subprotocol=<span class="st">"yjs"</span>)   <span class="cm"># 握手：同意连接，声明协议</span>
+        self._connections.<span class="fn">setdefault</span>(doc_id, <span class="fn">set</span>()).<span class="fn">add</span>(ws)  <span class="cm"># 把人拉进房间</span></code></pre>
+<p><strong>房间 = 正在编辑同一篇文档的所有人</strong>。字典的键是 doc_id，值是"这个文档的所有连接"（set 集合，天然去重）。新消息只转发给"同房间"的人——所以两个人编辑不同文档互不干扰。</p>
+</section>
+
+<!-- ============ P8 ============ -->
+<section id="p8">
+<h2 class="part">Part 8 · 后端第 6 课：services 服务层 —— 核心算法都在这里</h2>
+
+<h3>8.1 <span class="file-head">services/oplog_chain.py</span> —— SHA-256 哈希链（防篡改核心）</h3>
+<p>先懂<strong>哈希（Hash）</strong>：一个"数字指纹"函数。给任何内容，算出固定长度的乱码串；内容改一丁点，指纹完全变样；且无法从指纹反推内容。</p>
+<pre><code><span class="kw">def</span> <span class="fn">compute_hash</span>(prev_hash, operation, timestamp, *, salt=<span class="kw">None</span>):
+    ts = timestamp.<span class="fn">timestamp</span>() <span class="kw">if</span> <span class="fn">isinstance</span>(timestamp, datetime) <span class="kw">else</span> <span class="fn">float</span>(timestamp)
+    op_json = json.<span class="fn">dumps</span>(operation, ensure_ascii=<span class="kw">False</span>, sort_keys=<span class="kw">True</span>)
+    payload = <span class="st">f"</span>{prev_hash}<span class="st">|</span>{op_json}<span class="st">|</span>{ts:.6f}<span class="st">|</span>{salt}<span class="st">"</span>
+    <span class="kw">return</span> hashlib.<span class="fn">sha256</span>(payload.<span class="fn">encode</span>(<span class="st">"utf-8"</span>)).<span class="fn">hexdigest</span>()</code></pre>
+<p>拆解这行"指纹公式"：<code>当前指纹 = SHA256(上一个指纹 | 操作内容 | 时间 | 盐)</code></p>
+<ul>
+  <li><code>sort_keys=True</code>：把字典的键排序再序列化。为什么？字典在 Python 里的顺序可能变化，如果两次算哈希时键顺序不同，指纹就不同了——排序保证"同一内容永远算出同一指纹"；</li>
+  <li><strong>盐（salt）</strong>：一段保密字符串混进去，让外人即使知道公式也算不出你的指纹（防伪造）；</li>
+  <li><strong>链的威力</strong>：每条日志的指纹都"锁住"了上一条的指纹。中间任何一条被改 → 它自己的指纹变了 → 下一条的"上一个指纹"对不上 → 再下一条也对不上……<strong>整条链像多米诺骨牌一样全部倒下</strong>。校验时从头重算一遍，任何一处不匹配就报警。</li>
+</ul>
+<pre><code><span class="kw">def</span> <span class="fn">verify_chain</span>(entries):
+    prev_hash = <span class="st">""</span>                      <span class="cm"># 从空串开始（链首约定）</span>
+    <span class="kw">for</span> entry <span class="kw">in</span> entries:
+        expected = <span class="fn">compute_hash</span>(prev_hash, entry[<span class="st">"operation"</span>], entry[<span class="st">"created_at"</span>])
+        <span class="kw">if</span> entry[<span class="st">"current_hash"</span>] != expected:  <span class="cm"># 重算的 ≠ 存的 → 被改过！</span>
+            <span class="kw">return</span> <span class="kw">False</span>
+        prev_hash = entry[<span class="st">"current_hash"</span>]   <span class="cm"># 接力：下一个用它当"上一个指纹"</span>
+    <span class="kw">return</span> <span class="kw">True</span></code></pre>
+<div class="ana">💡 <strong>并发锁（为什么要有）</strong>：假设 A、B 两人同时编辑。A 读到链尾是"指纹#5"，B 也读到"指纹#5"，两人同时算出"指纹#6"——数据库规定"指纹不能重复"，B 就报错，而且链乱了。解决方案：给每个文档加一把锁（<code>asyncio.Lock</code>），同一时间只允许一个人"读链尾→写日志→提交"，其他人排队等。这就是 <code>oplog_append_lock(doc_id)</code> 的由来。</div>
+
+<h3>8.2 <span class="file-head">services/watermark_engine.py</span> —— Kirchenbauer 水印（用统计判断"这是不是 AI 写的"）</h3>
+<p>这个算法的思想，用一个生活故事讲：</p>
+<p>假设你开了一家餐厅，为了知道哪些菜是"AI 厨师"做的，你定了规矩：<strong>每道菜的下一道菜，只能从"提前画好的名单"里选</strong>。AI 厨师严格照规矩做，所以 AI 做的套餐里，绝大多数菜都来自名单；人类厨师不知道规矩，随手做，命中名单的比例只是"碰巧"。</p>
+<p>现在端上一桌菜，我们数"名单里的菜"占了多少：<strong>比例明显高于正常 → 这桌是 AI 做的；比例正常 → 人类做的</strong>。水印就是这么工作的：</p>
+<ol>
+  <li><strong>绿名单生成</strong>（<code>_green_list_mask</code>）：对每个"前一个字符"，用种子（<code>hash_key × 前字符 + 密钥哈希</code>）把 65536 个"虚拟字符"洗牌，前 50%（gamma=0.5）进绿名单；</li>
+  <li><strong>检测</strong>（<code>detect_watermark</code>）：把文本逐字符两两分组，数"后一个字符在前一个字符绿名单里"的次数；</li>
+  <li><strong>统计检验</strong>：算 z 分数 <code>z = (命中数 − 期望命中数) / 标准差</code>，z 越大越像 AI；<strong>z &gt; 4 判 AI 生成</strong>（4 个标准差，统计学上极显著）；</li>
+  <li><strong>防误判</strong>：开启"bigram 去重"——同样的两字符组合只数一次，防止文本里反复出现某个词组导致误报。</li>
+</ol>
+<pre><code><span class="kw">def</span> <span class="fn">detect_watermark</span>(self, text: str):
+    tokens = self.<span class="fn">_tokenize</span>(text)         <span class="cm"># 把文本变成数字列表（字符→Unicode 码点）</span>
+    <span class="kw">if</span> <span class="fn">len</span>(tokens) &lt; <span class="num">2</span>:                 <span class="cm"># 太短没法判断</span>
+        <span class="kw">return</span> {<span class="st">"is_ai_generated"</span>: <span class="kw">False</span>, ...}
+    stats = self.<span class="fn">_score_sequence</span>(tokens)   <span class="cm"># 数绿名单命中 → z 分数 → p 值</span>
+    is_ai = stats[<span class="st">"z_score"</span>] &gt; self.detection_threshold  <span class="cm"># z>4 判 AI</span>
+    confidence = <span class="fn">round</span>(<span class="num">1.0</span> - stats[<span class="st">"p_value"</span>], <span class="num">6</span>) <span class="kw">if</span> is_ai <span class="kw">else</span> <span class="num">0.0</span></code></pre>
+<div class="ana">💡 <strong>为什么置信度 = 1 − p 值？</strong> p 值是"这桌菜其实是人类做的、但被误判成 AI"的概率（越小越好）。所以 1 − p 就是"这桌确实是 AI 做的"的把握。p = 0.01 → 置信度 99%。</div>
+
+<h3>8.3 <span class="file-head">services/agent_orchestrator.py</span> —— 多 Agent 流水线</h3>
+<p>这个文件模拟"科研团队流水线"：研究员（Research）→ 写手（Writer）→ 导师（Supervisor）。</p>
+<pre><code><span class="cm"># 1. Research 节点：从指令里抽关键词 → 搜 arXiv → 不行就搜本地文献库</span>
+<span class="kw">async def</span> <span class="fn">research_agent_node</span>(state):
+    keywords = <span class="fn">_extract_keywords</span>(state.get(<span class="st">"research_input"</span>, <span class="st">""</span>))
+    ...
+    <span class="kw">try</span>:
+        arxiv_items = <span class="kw">await</span> <span class="fn">search_arxiv</span>(query, max_results=<span class="num">5</span>)   <span class="cm"># 优先真实检索</span>
+        <span class="kw">if</span> arxiv_items: retrieved = [...]
+    <span class="kw">except</span> Exception <span class="kw">as</span> e:   <span class="cm"># 网络不行 → 降级</span>
+        <span class="fn">print</span>(<span class="st">"arXiv 检索不可用，降级本地文献库"</span>)</code></pre>
+<ul>
+  <li><strong>state（状态）</strong>：一个"公文包"，在整个流水线中传递：研究结果 → 草稿 → 审阅意见都往里面放；</li>
+  <li><strong>降级设计</strong>：网络不通也能用本地 8 篇文献继续演示——"演示永远不失败"是这套代码的潜规则；</li>
+  <li><strong>LangGraph</strong>：把流水线画成"图"（research→writer→supervisor，supervisor 若说"重写"就回到 writer）。没装这个库时，自动改用简单的顺序执行（结果一样）——又是"降级优先"。</li>
+</ul>
+
+<h3>8.4 <span class="file-head">services/academic_review.py</span> —— 导师的"格式检查规则"</h3>
+<p>纯用"找规律"（正则表达式）检查论文格式：篇幅够不够、引用编号连不连续（[1][2][3]...）、有没有"参考文献"章节、引用编号有没有超出文献条数。全是 if + 正则，没有任何 AI——这就是"规则引擎"。例如：</p>
+<pre><code>CITATION_RE = re.<span class="fn">compile</span>(<span class="st">r"\[(\d{1,3})\](?![0-9])"</span>)  <span class="cm"># 匹配 [1] [12] 这种引用编号</span></code></pre>
+<p><strong>正则表达式（regex）</strong>：一种"模式匹配"的迷你语言。<code>\d{1,3}</code> 表示"1 到 3 位数字"，<code>[...]</code> 里的 <code>\[</code> 表示字面左括号（因为 [ 在正则里有特殊含义，要加 \ 转义）。正则到处都在用，值得学会基本语法。</p>
+
+<h3>8.5 <span class="file-head">services/arxiv_client.py</span> —— 访问外部网站（arXiv）</h3>
+<pre><code><span class="kw">async def</span> <span class="fn">search</span>(self, query, max_results=<span class="num">6</span>):
+    async <span class="kw">with</span> httpx.AsyncClient(timeout=<span class="num">15.0</span>) <span class="kw">as</span> client:
+        resp = <span class="kw">await</span> client.<span class="fn">get</span>(ARXIV_API, params=params)  <span class="cm"># 发 HTTP 请求给 arXiv</span>
+        resp.<span class="fn">raise_for_status</span>()          <span class="cm"># 状态码不是 200 就抛异常</span>
+        xml = resp.text
+    <span class="kw">return</span> self.<span class="fn">_parse_feed</span>(xml)      <span class="cm"># 解析返回的 XML 数据</span></code></pre>
+<p>你的后端也会"当客户"去访问别的网站（arXiv）。返回的 XML 文本用字符串切割 + 正则提取标题/作者/年份（<code>xml.split("&lt;entry&gt;")[1:]</code>）——轻量但够用。</p>
+
+<h3>8.6 <span class="file-head">services/stream_buffer.py</span> —— 预留的"流式打字机"</h3>
+<p>设想：将来 AI 写文章是一段一段蹦出来的（流式）。这个缓冲器先把碎片攒起来，攒到 200 个字符或 0.5 秒就"整段原子插入"文档——保证读者要么看到完整句子，要么什么都没看到，不会看到半句话。当前是预留代码，没被调用。</p>
+</section>
+
+<!-- ============ P9 ============ -->
+<section id="p9">
+<h2 class="part">Part 9 · 网页是怎么工作的：HTTP / REST / JSON / 数据库 / WebSocket</h2>
+<p>前端代码看不懂，往往不是 JS 语法问题，而是<strong>不理解网页和服务器怎么协作</strong>。这一节把地基打牢。</p>
+
+<h3>9.1 前端、后端、浏览器、服务器的角色</h3>
+<div class="flow">
+  <span class="box">你（用户）</span><span class="arrow">→</span><span class="box">浏览器（打开网页）</span><span class="arrow">→</span><span class="box">前端代码（React，管界面）</span><span class="arrow">→</span><span class="box">后端代码（FastAPI，管数据）</span><span class="arrow">→</span><span class="box">数据库</span>
+</div>
+<ul>
+  <li><strong>浏览器</strong>：你的电脑上运行网页的地方。前端代码（HTML/CSS/JS）就在浏览器里跑；</li>
+  <li><strong>前端</strong>：决定"长什么样、点了有什么反应"；</li>
+  <li><strong>后端</strong>：决定"数据存哪、怎么算"。它跑在服务器（另一台电脑或你自己的电脑）上，前端不认识数据库，必须通过后端；</li>
+  <li><strong>前后端靠"网络请求"对话</strong>——这就是 HTTP。</li>
+</ul>
+
+<h3>9.2 HTTP 与 REST（网址 = 动词 + 名词）</h3>
+<p>HTTP 请求就是一个"快递单"：<strong>方法（动词）+ 网址（名词）</strong>。REST 风格规定：</p>
+<table>
+  <tr><th>HTTP 方法</th><th>动词含义</th><th>你的项目例子</th></tr>
+  <tr><td>GET</td><td>取数据（不改变任何东西）</td><td>GET /api/documents → 拿文档列表</td></tr>
+  <tr><td>POST</td><td>新建数据</td><td>POST /api/documents → 创建文档</td></tr>
+  <tr><td>PATCH</td><td>改部分数据</td><td>PATCH /api/documents/{id} → 更新正文</td></tr>
+  <tr><td>DELETE</td><td>删除数据</td><td>DELETE /api/documents/{id} → 删文档</td></tr>
+</table>
+<p>网址里的 <code>{doc_id}</code> 是"路径参数"——<code>/api/documents/abc123</code> 就是操作 id 为 abc123 的文档。</p>
+
+<h3>9.3 JSON（前后端之间的"普通话"）</h3>
+<pre><code>{ <span class="st">"title"</span>: <span class="st">"我的论文"</span>, <span class="st">"year"</span>: <span class="num">2026</span>, <span class="st">"tags"</span>: [<span class="st">"AI"</span>, <span class="st">"水印"</span>] }</code></pre>
+<p>JSON 就是"用文本表示数据"的通用格式，长得跟 Python 字典几乎一样。前端把 JSON 发给后端，后端把结果转成 JSON 返回。Python 侧转换用 <code>json.dumps</code>（对象→文本）/ <code>json.loads</code>（文本→对象）；JS 侧用 <code>JSON.stringify</code> / <code>JSON.parse</code>。</p>
+
+<h3>9.4 数据库和 ORM 的对应关系</h3>
+<table>
+  <tr><th>数据库概念</th><th>Excel 类比</th><th>Python ORM 写法</th></tr>
+  <tr><td>表（Table）</td><td>工作表</td><td>class Document(Base)</td></tr>
+  <tr><td>行（Row）</td><td>一行数据</td><td>Document(title="...")</td></tr>
+  <tr><td>列（Column）</td><td>一列字段</td><td>title: Mapped[str]</td></tr>
+  <tr><td>主键</td><td>行号（唯一）</td><td>primary_key=True</td></tr>
+  <tr><td>外键</td><td>引用另一个表的行号</td><td>ForeignKey("users.id")</td></tr>
+</table>
+
+<h3>9.5 浏览器三件套：HTML / CSS / JavaScript</h3>
+<ul>
+  <li><strong>HTML</strong>：网页的"骨架"——<code>&lt;div&gt;</code> 是块、<code>&lt;p&gt;</code> 是段落、<code>&lt;button&gt;</code> 是按钮；</li>
+  <li><strong>CSS</strong>：网页的"衣服"——颜色、大小、布局。你的项目用 TailwindCSS，把常用样式写成 <code>className="px-3 py-1 rounded"</code> 这样的短类名（p=内边距、rounded=圆角）；</li>
+  <li><strong>JavaScript</strong>：网页的"肌肉"——让按钮能点击、数据能刷新。TS 就是"带类型检查的 JS"。</li>
+</ul>
+<div class="tip">✅ <strong>React 是什么</strong>：一个"用函数生成网页"的框架。核心思想：<strong>界面 = 数据的函数</strong>。数据变了，界面自动重画。你只需要写"这个状态长这样"，不用手动改网页。</div>
+</section>
+
+<!-- ============ P10 ============ -->
+<section id="p10">
+<h2 class="part">Part 10 · TypeScript 基础语法速成（用你的代码当例子）</h2>
+<p>下面是你在前端代码里会反复看到的 TS 语法，全部用真实代码举例：</p>
+
+<h3>10.1 变量与类型</h3>
+<pre><code><span class="kw">const</span> [docId, setDocId] = useState&lt;string&gt;(<span class="st">''</span>);  <span class="cm">// 类型写在尖括号里</span>
+<span class="kw">let</span> timer: number | undefined;   <span class="cm">// 联合类型：是 number 或 undefined</span>
+<span class="kw">const</span> username = <span class="st">`user-${Math.random().toString(36).slice(2, 8)}`</span>;  <span class="cm">// 模板字符串</span></code></pre>
+<ul>
+  <li><code>const</code> = 常量（不可重新赋值）；<code>let</code> = 变量（可改）。C++ 里你学过 const，意思类似；</li>
+  <li><strong>模板字符串</strong>：反引号 ` 包裹，<code>${表达式}</code> 插入值——相当于 Python 的 f-string；</li>
+  <li><code>number | undefined</code>：联合类型，"要么是数字，要么是空"。对应 Python 的 <code>Optional[int]</code>。</li>
+</ul>
+
+<h3>10.2 interface / type / enum（定义"形状"）</h3>
+<pre><code><span class="kw">interface</span> DocSummary {       <span class="cm">// 规定"文档摘要"对象长什么样</span>
+  id: string;
+  title: string;
+  content: string;
+  updatedAt: string;
+}
+
+<span class="kw">enum</span> AgentStatus {            <span class="cm">// 枚举：一组有名字的常量</span>
+  IDLE = <span class="st">'idle'</span>,
+  RUNNING = <span class="st">'running'</span>,
+  COMPLETED = <span class="st">'completed'</span>,
+  ERROR = <span class="st">'error'</span>,
+}</code></pre>
+<p>interface 就是"形状说明书"——变量符合这个形状才不报错。相当于 Python 的 TypedDict。有了它，编辑器（VS Code）能自动提示字段名、拼错立刻红波浪线。<strong>这就是 TS 比 JS 香的原因。</strong></p>
+
+<h3>10.3 箭头函数（= Python 的 lambda 进化版）</h3>
+<pre><code><span class="cm">// 完整写法</span>
+<span class="kw">const</span> handleExportDoc = <span class="kw">async</span> () =&gt; {
+  <span class="kw">const</span> md = <span class="kw">await</span> exportDocument(docId);
+  ...
+};
+<span class="cm">// 简短写法（单表达式直接返回）</span>
+<span class="kw">const</span> getDocText = useCallback(<span class="fn">()</span> =&gt; (ydoc ? getPlainText(ydoc) : <span class="st">''</span>), [ydoc]);</code></pre>
+<p><code>(参数) =&gt; { 代码 }</code> 就是"函数"。等价于 Python 的 <code>def 函数(参数):</code>，但更短。<code>async () =&gt;</code> 是异步箭头函数，里面可以用 await。</p>
+
+<h3>10.4 解构赋值（拆包裹）</h3>
+<pre><code><span class="cm">// 从对象里一次性取多个字段（= Python 的 a, b = dict.items() 类似）</span>
+<span class="kw">const</span> { session_id: sessionId } = <span class="kw">await</span> triggerAgent(type, docId, prompt);
+<span class="cm">// 注意：变量改名用 "原名: 新名"，session_id（后端）→ sessionId（前端规范）</span>
+
+<span class="cm">// 从数组里取前两个元素</span>
+<span class="kw">const</span> [list, v] = <span class="kw">await</span> Promise.all([getProvenance(docId), verifyProvenance(docId)]);</code></pre>
+<p><code>Promise.all([...])</code> = 同时发起多个请求，全部完成才继续（并行等待）。<code>[list, v] = ...</code> 同时接住两个结果。</p>
+
+<h3>10.5 import / export（模块化）</h3>
+<pre><code><span class="kw">import</span> { CollaborativeEditor } <span class="kw">from</span> <span class="st">'./components/Editor/CollaborativeEditor'</span>;
+<span class="kw">import</span> * <span class="kw">as</span> Y <span class="kw">from</span> <span class="st">'yjs'</span>;   <span class="cm">// 把 yjs 库整个导入，用 Y.xxx 访问</span>
+<span class="kw">import</span> type { Document } <span class="kw">from</span> <span class="st">'@shared/types'</span>;  <span class="cm">// import type = 只导入类型</span></code></pre>
+<p>等价于 Python 的 <code>from 模块 import 名字</code>。<code>@shared</code> 是 Vite 配的路径别名，指向项目根目录的 shared 文件夹。</p>
+
+<h3>10.6 React 三兄弟：useState / useEffect / useRef / useMemo / useCallback</h3>
+<table>
+  <tr><th>Hook</th><th>作用</th><th>生活类比</th><th>你的代码里的例子</th></tr>
+  <tr><td><code>useState</code></td><td>声明"会变的变量"，变了自动重画界面</td><td>便利贴：写了新值，界面就更新</td><td><code>const [docId, setDocId] = useState('')</code></td></tr>
+  <tr><td><code>useEffect</code></td><td>组件"上场后"要做的副作用（请求、监听）</td><td>开机自动运行的程序</td><td><code>useEffect(() =&gt; { fetchBootstrap()... }, [])</code></td></tr>
+  <tr><td><code>useRef</code></td><td>存"不影响界面的记忆"</td><td>口袋记事本：随时翻看，不用通知界面</td><td><code>docIdRef.current = docId</code></td></tr>
+  <tr><td><code>useMemo</code></td><td>缓存计算结果（参数没变就不重算）</td><td>算好一次记下来，下次直接用</td><td><code>useMemo(() =&gt; getCollabSession(docId), [docId])</code></td></tr>
+  <tr><td><code>useCallback</code></td><td>缓存函数本体（避免重复创建）</td><td>同一把工具反复用</td><td><code>const refreshRecords = useCallback(async () =&gt; {...}, [docId])</code></td></tr>
+</table>
+<div class="ana">💡 <strong>useEffect 的依赖数组 [ ]</strong>：第二个参数是"依赖列表"。写 <code>[]</code> = "只在组件第一次上场时执行一次"；写 <code>[docId]</code> = "docId 变化时才重新执行"；不写 = "每次渲染都执行"。这是 React 初学者最容易糊涂的点，记住：<strong>依赖数组决定这个副作用多久跑一次</strong>。</div>
+
+<h3>10.7 JSX（在 JS 里写 HTML）</h3>
+<pre><code><span class="kw">return</span> (
+  &lt;div className=<span class="st">"flex items-center gap-2"</span>&gt;
+    &lt;span&gt;{onlineCount} 人在线&lt;/span&gt;   <span class="cm">{/* 花括号 = 插入 JS 变量的值 */}</span>
+    &lt;button onClick={handleExportDoc}&gt;导出&lt;/button&gt;   <span class="cm">{/* 事件绑定 */}</span>
+  &lt;/div&gt;
+);</code></pre>
+<ul>
+  <li>JSX = JavaScript + HTML 混写。注意属性名用驼峰：HTML 里是 <code>class</code>，JSX 里是 <code>className</code>（因为 class 是 JS 关键字）；</li>
+  <li>花括号 <code>{变量}</code> 把 JS 值插进界面；<code>onClick={函数}</code> 给按钮绑点击事件（不写括号！写括号会立刻执行）。</li>
+</ul>
+</section>
+
+<!-- ============ P11 ============ -->
+<section id="p11">
+<h2 class="part">Part 11 · 前端第 1 课：main.tsx / vite.config.ts / App.tsx</h2>
+
+<h3>11.1 <span class="file-head">src/main.tsx</span> —— 网页的"开机自启"</h3>
+<pre><code><span class="fn">ReactDOM.createRoot</span>(document.<span class="fn">getElementById</span>(<span class="st">'root'</span>)!).<span class="fn">render</span>(
+  &lt;React.StrictMode&gt;&lt;App /&gt;&lt;/React.StrictMode&gt;
+);</code></pre>
+<ul>
+  <li><code>document.getElementById('root')</code>：找到 HTML 里 id 为 root 的空 div（在 index.html 里）；</li>
+  <li><code>!</code>：TS 的"非空断言"——"我保证它一定存在，别检查了"；</li>
+  <li><code>&lt;App /&gt;</code>：把根组件 App 放进这个 div。<code>React.StrictMode</code> 是开发模式的"严格检查"，会故意让组件挂载两次来暴露 bug——这也是前端很多"防重复"代码的原因。</li>
+</ul>
+
+<h3>11.2 <span class="file-head">vite.config.ts</span> —— 开发服务器的"转发放行"</h3>
+<pre><code>proxy: {
+  <span class="st">'/api'</span>: { target: <span class="st">'http://localhost:8000'</span>, changeOrigin: <span class="kw">true</span> },
+  <span class="st">'/ws'</span>:  { target: <span class="st">'ws://localhost:8000'</span>, ws: <span class="kw">true</span> },
+}</code></pre>
+<p>前端开发服务器跑在 5173，后端在 8000。<strong>代理</strong> = "前端收到 /api 开头的请求，悄悄转交给 8000 的后端"。这样前端代码里写相对路径 <code>/api/xxx</code> 就行，不用管端口。开发时省心，正式部署时用 Nginx 干同样的事。</p>
+
+<h3>11.3 <span class="file-head">src/App.tsx</span> —— 整个页面的"总指挥"</h3>
+<p>这个文件决定页面的整体布局和所有"全局状态"。布局是经典三栏：</p>
+<div class="flow">
+  <span class="box">顶栏（文档切换/新建/导出）</span>
+</div>
+<div class="flow">
+  <span class="box">左：Agent 面板</span><span class="arrow">|</span><span class="box">中：协同编辑器</span><span class="arrow">|</span><span class="box">右：水印/溯源/文献</span>
+</div>
+<pre><code><span class="kw">const</span> [docId, setDocId] = useState&lt;string&gt;(<span class="st">''</span>);   <span class="cm">// 当前打开的文档 ID</span>
+<span class="kw">const</span> [docs, setDocs] = useState&lt;DocSummary[]&gt;([]);  <span class="cm">// 文档列表</span>
+
+<span class="cm">// 开机：向后端要"演示用户 + 文档列表"</span>
+useEffect(<span class="fn">()</span> =&gt; {
+  fetchBootstrap()
+    .<span class="fn">then</span>(<span class="fn">(boot)</span> =&gt; {
+      setUserId(boot.demo_user_id);      <span class="cm">// 拿到演示用户</span>
+      setDocs(boot.documents.<span class="fn">map</span>(...));  <span class="cm">// 存下文档列表</span>
+      setDocId(boot.demo_doc_id);        <span class="cm">// 默认打开演示文档</span>
+      setBackendOk(<span class="kw">true</span>);
+    })
+    .<span class="fn">catch</span>(<span class="fn">()</span> =&gt; setBackendOk(<span class="kw">false</span>));  <span class="cm">// 后端没启动 → 显示提示</span>
+}, []);</code></pre>
+<ul>
+  <li><code>.then(回调)</code> / <code>.catch(回调)</code>：Promise 的"成功/失败后做什么"——相当于 Python 的 try/except，但写法不同。用 async/await 也能写，这只是另一种风格；</li>
+  <li><code>boot.documents.map(...)</code>：<code>map</code> = 把数组每个元素"变形"（Python 里叫列表推导）。把后端的 snake_case 数据转换成前端要的 camelCase 结构。</li>
+</ul>
+<pre><code><span class="cm">// 关键：每个文档一个 Yjs 会话（单例缓存，Part 12 讲）</span>
+<span class="kw">const</span> session = docId ? getCollabSession(docId) : <span class="kw">null</span>;
+<span class="kw">const</span> ydoc = session ? session.ydoc : <span class="kw">null</span>;
+
+<span class="cm">// 切换文档时，销毁旧文档的连接（防止连接泄漏）</span>
+useEffect(<span class="fn">()</span> =&gt; {
+  <span class="kw">if</span> (docIdRef.current !== docId) {
+    disposeCollabSession(docIdRef.current);   <span class="cm">// 关掉旧文档的 WebSocket</span>
+    docIdRef.current = docId;
+  }
+}, [docId]);</code></pre>
+<p>这里的细节：<code>useRef</code> 存"上一次的 docId"，对比发现变了就清理旧连接。为什么要用 ref 而不是直接读 state？因为 <code>useEffect</code> 里读 state 会拿到"闭包旧值"——ref 永远是最新的。这是 React 的一个经典小坑。</p>
+</section>
+
+<!-- ============ P12 ============ -->
+<section id="p12">
+<h2 class="part">Part 12 · 前端第 2 课：lib 工具层（api / collab / yjs）</h2>
+
+<h3>12.1 <span class="file-head">src/lib/api.ts</span> —— 前端如何"打电话"给后端</h3>
+<pre><code><span class="kw">async function</span> request&lt;T&gt;(path: string, options?: RequestInit): Promise&lt;T&gt; {
+  <span class="kw">const</span> res = <span class="kw">await</span> fetch(<span class="st">`${BASE_URL}${path}`</span>, {
+    headers: { <span class="st">'Content-Type'</span>: <span class="st">'application/json'</span> },
+    ...options,
+  });
+  <span class="kw">if</span> (!res.ok) {
+    <span class="kw">throw</span> <span class="kw">new</span> Error(<span class="st">`API ${path} 请求失败: ${res.status}`</span>);
+  }
+  <span class="kw">return</span> <span class="kw">await</span> res.json();   <span class="cm">// 把响应的 JSON 解析成对象</span>
+}</code></pre>
+<ul>
+  <li><strong>fetch</strong>：浏览器自带的"发 HTTP 请求"函数（像 Python 的 httpx）。<code>await fetch(...)</code> = 发请求并等响应；</li>
+  <li><strong>泛型 &lt;T&gt;</strong>：表示"这个函数返回什么类型由调用时决定"，<code>request&lt;Document[]&gt;('/documents')</code> 就告诉 TS"这返回文档数组"；</li>
+  <li><code>...options</code>：展开运算符——把调用者传的额外选项（如 method、body）合并进来。相当于 Python 的 <code>**dict</code>。</li>
+</ul>
+<pre><code><span class="kw">export const</span> createDocument = <span class="kw">async</span> (payload) =&gt; {
+  <span class="kw">const</span> raw = <span class="kw">await</span> request&lt;BackendDocument&gt;(<span class="st">'/documents'</span>, {
+    method: <span class="st">'POST'</span>,
+    body: JSON.<span class="fn">stringify</span>({ title: payload.title, owner_id: payload.ownerId, ... }),
+  });
+  <span class="kw">return</span> mapDocument(raw);   <span class="cm">// snake_case → camelCase 转换</span>
+};</code></pre>
+<p>注意这里前端把 <code>ownerId</code>（前端规范）转成 <code>owner_id</code>（后端规范）再发出去——<strong>命名规范不同的两套体系靠转换函数衔接</strong>。这是前后端协作的常见模式。</p>
+
+<h3>12.2 <span class="file-head">src/lib/collab.ts</span> —— Yjs 会话的单例缓存（防坑核心）</h3>
+<pre><code><span class="kw">const</span> sessions = <span class="kw">new</span> Map&lt;string, CollabSession&gt;();   <span class="cm">// 全局"记忆本"</span>
+
+<span class="kw">export function</span> getCollabSession(docId: string): CollabSession {
+  <span class="kw">let</span> session = sessions.<span class="fn">get</span>(docId);      <span class="cm">// 先查：有没有这个文档的会话</span>
+  <span class="kw">if</span> (!session) {                        <span class="cm">// 没有才新建</span>
+    <span class="kw">const</span> ydoc = <span class="kw">new</span> Y.Doc();           <span class="cm">// 创建 CRDT 文档对象</span>
+    <span class="kw">const</span> provider = <span class="kw">new</span> WebsocketProvider(getWsUrl(), docId, ydoc, {...});
+    session = { ydoc, provider, editor: <span class="kw">null</span>, loaded: <span class="kw">false</span> };
+    sessions.<span class="fn">set</span>(docId, session);
+  }
+  <span class="kw">return</span> session;
+}</code></pre>
+<div class="warn">⚠️ <strong>为什么这么防？</strong> ① React 开发模式（StrictMode）会让组件"挂了又挂"，如果每次都在组件里新建 WebSocket 连接，会开一堆重复连接；② 编辑器、Agent 面板、水印面板都要用同一个文档数据——如果各自建连接，大家的数据不一致，还会造成"光标消息无限转发回环"。<strong>解决：整个页面共享同一个 Y.Doc 和同一条连接，存进模块级 Map。</strong>这也是注释里写着的血泪教训。</div>
+
+<h3>12.3 <span class="file-head">src/lib/yjs.ts</span> —— 操作协同数据的工具</h3>
+<pre><code><span class="kw">export function</span> appendText(editor, ydoc, text, author = AUTHOR_HUMAN): boolean {
+  ...
+  <span class="kw">if</span> (!editor || !editor.isEditable) { ... }   <span class="cm">// 编辑器没就绪：直接操作数据层</span>
+  <span class="cm">// 编辑器就绪：走"官方通道"插入（关键！）</span>
+  editor.commands.<span class="fn">insertContentAt</span>(editor.state.doc.content.size, {
+    type: <span class="st">'paragraph'</span>,
+    content: [{
+      type: <span class="st">'text'</span>,
+      text,
+      marks: [{ type: <span class="st">'author'</span>, attrs: { author } }],  <span class="cm">// 打上作者标记</span>
+    }],
+  });
+  <span class="kw">return</span> <span class="kw">true</span>;
+}</code></pre>
+<div class="ana">💡 <strong>为什么"必须走编辑器通道"？</strong> Yjs 与编辑器之间有个"同步插件"（ySyncPlugin），它会在检测到外部改动时，用 Yjs 的数据<strong>重建整个编辑器内容</strong>。如果你绕过编辑器直接往 Yjs 里插数据，重建时你插的内容会被当作"未知数据"丢弃。所以 AI 插入必须通过 <code>editor.commands</code> 这个"正门"，让插件知道"这是合法操作"。这是本项目最典型的踩坑修复之一。</div>
+<pre><code><span class="kw">export function</span> getPlainText(ydoc): string {
+  <span class="cm">// 把协同文档变成纯文本：遍历段落，段落间用换行分隔</span>
+  <span class="cm">// 用途：水印检测、保存到后端、导出</span>
+}</code></pre>
+</section>
+
+<!-- ============ P13 ============ -->
+<section id="p13">
+<h2 class="part">Part 13 · 前端第 3 课：协同编辑器 CollaborativeEditor.tsx</h2>
+<p>这是前端最复杂的文件，拆成 4 块讲：</p>
+
+<h3>13.1 编辑器是怎么"搭"起来的</h3>
+<pre><code><span class="kw">const</span> editor = useEditor({
+  extensions: [
+    StarterKit.<span class="fn">configure</span>({ history: <span class="kw">false</span> }),  <span class="cm">// 基础功能（加粗/标题/列表），关掉本地撤销</span>
+    AuthorMark,                                  <span class="cm">// 自定义的"作者标记"</span>
+    Collaboration.<span class="fn">configure</span>({
+      fragment: ydoc.<span class="fn">getXmlFragment</span>(<span class="st">'default'</span>),  <span class="cm">// 把编辑器接上 Yjs 文档</span>
+    }),
+    CollaborationCursor.<span class="fn">configure</span>({
+      provider,                                  <span class="cm">// 多光标：把每个用户的光标状态同步出去</span>
+      user: { name: username, color: <span class="st">'#4f46e5'</span> },
+    }),
+    AuthorHighlight.<span class="fn">configure</span>({ ydoc }),        <span class="cm">// 自定义的"作者着色"</span>
+  ],
+  content: <span class="st">''</span>,
+});</code></pre>
+<ul>
+  <li><strong>Tiptap</strong>：一个编辑器框架。它把"编辑器要支持什么功能"声明成一个个扩展（extensions）；</li>
+  <li><code>history: false</code>：普通编辑器有"撤销"按钮，但协同编辑下本地撤销会和别人的操作打架，所以关掉（协同撤销是另一套机制，本 demo 未启用）；</li>
+  <li><code>getXmlFragment('default')</code>：拿到 Yjs 文档里的"正文内容"（一个 XML 树状结构）。所有协作者的编辑都发生在这一棵树上。</li>
+</ul>
+
+<h3>13.2 AuthorMark —— "作者属性"怎么进入文档</h3>
+<pre><code><span class="kw">const</span> AuthorMark = Mark.<span class="fn">create</span>({
+  name: <span class="st">'author'</span>,                    <span class="cm">// mark 名字必须叫 'author'</span>
+  <span class="fn">addAttributes</span>() { <span class="kw">return</span> { author: { default: <span class="st">'human'</span> } }; },
+  <span class="fn">parseHTML</span>() { <span class="kw">return</span> [{ tag: <span class="st">'span[data-author]'</span> }]; },   <span class="cm">// 读取 HTML 标记</span>
+  <span class="fn">renderHTML</span>({ HTMLAttributes }) { <span class="kw">return</span> [<span class="st">'span'</span>, <span class="fn">mergeAttributes</span>(HTMLAttributes)]; },
+});</code></pre>
+<p>Mark（标记）= 可以"贴在文字上一段"的标签（如加粗、斜体）。这里自定义了一个"作者标记"：贴了 <code>author=ai</code> 的文字 = AI 写的；<code>author=human</code> = 人写的。<strong>mark 名必须叫 'author'，是因为 Tiptap 的协同插件按"mark 名 = Yjs 属性名"来同步</strong>——名字不一致，属性就同步不过去。</p>
+
+<h3>13.3 AuthorHighlight —— 把"作者"变成背景色</h3>
+<pre><code><span class="cm">// 用 ProseMirror 的 Decoration（装饰）机制：</span>
+<span class="cm">// 找到带 author 属性的文字区间，给它们套上背景色样式类</span>
+decorations.<span class="fn">push</span>(
+  Decoration.<span class="fn">inline</span>(from, to, {
+    class: cls,               <span class="cm">// 'author-ai'（蓝）或 'author-human'（白）</span>
+    <span class="st">'data-author'</span>: author,
+  })
+);</code></pre>
+<p>Decoration = "贴在文档上的便签"，不改动文档内容，只影响显示。AI 文字被贴上蓝色便签（<code>author-ai</code>），CSS 里定义蓝色背景 → 界面上 AI 内容就是蓝底。</p>
+
+<h3>13.4 三个 useEffect：监听、初始加载、自动保存</h3>
+<pre><code><span class="cm">// ① 监听连接状态：连上显示"已连接"，断了显示"连接中"</span>
+provider.<span class="fn">on</span>(<span class="st">'status'</span>, statusListener);
+provider.<span class="fn">on</span>(<span class="st">'sync'</span>, syncListener);         <span class="cm">// 同步完成时统计作者类型</span>
+provider.awareness.<span class="fn">on</span>(<span class="st">'change'</span>, awarenessListener);  <span class="cm">// 在线人数变化</span>
+
+<span class="cm">// ② 初始内容：从后端拿到的已保存内容，第一次打开时写入编辑器</span>
+<span class="kw">if</span> (!editor || !initialContent || session.loaded) <span class="kw">return</span>;
+<span class="kw">if</span> (!isEmpty) <span class="kw">return</span>;          <span class="cm">// 文档已有内容就不覆盖（防止覆盖别人编辑的）</span>
+session.loaded = <span class="kw">true</span>;
+editor.commands.<span class="fn">setContent</span>(initialContent);
+
+<span class="cm">// ③ 自动保存：每次编辑后，等 1.5 秒没再打字，就把全文存到后端</span>
+<span class="kw">const</span> persist = <span class="fn">()</span> =&gt; {
+  timer = window.<span class="fn">setTimeout</span>(<span class="fn">()</span> =&gt; {
+    <span class="kw">const</span> text = getPlainText(ydoc);
+    updateDocument(docId, { content: text, operatorId }).<span class="fn">catch</span>(...);
+  }, <span class="num">1500</span>);
+};
+editor.<span class="fn">on</span>(<span class="st">'update'</span>, persist);</code></pre>
+<div class="ana">💡 <strong>防抖（Debounce）</strong>：用户打字很快，如果每敲一个字就请求一次后端，服务器会累死。策略：<strong>停止打字 1.5 秒后才保存</strong>。timer 每次被重置，所以只要在打字，保存就一直推迟；停下来了才执行。这就是"防抖"。你在很多输入框里见过的"等你停下来才搜索"也是它。</div>
+</section>
+
+<!-- ============ P14 ============ -->
+<section id="p14">
+<h2 class="part">Part 14 · 前端第 4 课：四个功能面板</h2>
+
+<h3>14.1 AgentPanel（左栏）—— 点按钮调 AI</h3>
+<pre><code><span class="kw">const</span> handleTrigger = <span class="kw">async</span> (type: AgentType) =&gt; {
+  <span class="kw">if</span> (!prompt.<span class="fn">trim</span>()) { setError(<span class="st">'请输入研究/写作指令'</span>); <span class="kw">return</span>; }
+  setBusy(type);                               <span class="cm">// 进入"忙"状态（按钮转圈）</span>
+  <span class="kw">try</span> {
+    <span class="kw">const</span> { session_id: sessionId } = <span class="kw">await</span> triggerAgent(type, docId, prompt);
+    <span class="kw">const</span> { messages: msgs } = <span class="kw">await</span> getAgentMessages(sessionId);
+    setMessages(prev =&gt; [...prev, ...msgs]);    <span class="cm">// 把 AI 的话拼到消息列表</span>
+    ...
+    <span class="kw">const</span> writerMsg = msgs.<span class="fn">find</span>(m =&gt; m.agentType === <span class="st">'writer'</span>);
+    <span class="kw">if</span> (writerMsg?.content) {
+      appendAiText(getCollabSession(docId).editor, ydocRef.current, writerMsg.content);
+      <span class="cm">// ↑ 把 AI 写的内容以"AI 作者"身份插入文档（蓝色）</span>
+    }
+  } <span class="kw">catch</span> (e) { setStatuses(...); setError(...); }
+};</code></pre>
+<ul>
+  <li><code>setMessages(prev =&gt; [...prev, ...msgs])</code>：函数式更新——"基于旧值算新值"。<code>[...prev, ...msgs]</code> 是"复制旧数组再加上新消息"（不修改旧数组，React 要求数据不可变）；</li>
+  <li><code>?. </code>（可选链）：<code>writerMsg?.content</code> = "如果 writerMsg 存在才取 content，否则 undefined"——防止访问不存在对象的属性报错；</li>
+  <li>Supervisor 卡片按钮直接禁用（disabled）——因为触发任何 Agent 都会自动跑完整条流水线。</li>
+</ul>
+
+<h3>14.2 WatermarkPanel（右栏）—— 检测 AI 痕迹</h3>
+<pre><code><span class="kw">const</span> runDetect = <span class="kw">async</span> (text: string, persist: boolean) =&gt; {
+  <span class="kw">const</span> started = performance.<span class="fn">now</span>();      <span class="cm">// 记录开始时间（毫秒）</span>
+  <span class="kw">const</span> r = persist
+    ? <span class="kw">await</span> detectDocumentWatermark(docId)   <span class="cm">// 检测全文并留痕</span>
+    : <span class="kw">await</span> detectWatermark(text);           <span class="cm">// 检测粘贴的文本</span>
+  setResult({ ...r, latencyMs: Math.<span class="fn">round</span>(performance.<span class="fn">now</span>() - started) });
+  <span class="kw">if</span> (persist) <span class="kw">await</span> refreshRecords();       <span class="cm">// 留痕后刷新历史记录</span>
+};</code></pre>
+<ul>
+  <li><code>performance.now()</code>：浏览器提供的高精度计时器，用来算"检测花了多少毫秒"；</li>
+  <li><code>{ ...r, latencyMs: ... }</code>：展开对象再加一个新字段——复制 r 的所有字段，并补充 latencyMs。</li>
+</ul>
+
+<h3>14.3 ProvenancePanel（右栏）—— 展示"操作账本"</h3>
+<pre><code><span class="kw">const</span> [list, v] = <span class="kw">await</span> Promise.all([
+  getProvenance(docId),      <span class="cm">// 拉取操作日志列表</span>
+  verifyProvenance(docId),   <span class="cm">// 同时校验哈希链完整性</span>
+]);</code></pre>
+<p>顶部显示"✓ 链条完整"或"✗ 检测到篡改"徽标，下面按时间列出每条操作（插入/替换/水印检测...）和哈希缩略。这个面板就是哈希链的"可视化人证"。</p>
+
+<h3>14.4 LiteraturePanel（右栏）—— 查文献、插引用</h3>
+<pre><code><span class="kw">const</span> handleInsert = <span class="kw">async</span> (item) =&gt; {
+  <span class="kw">const</span> { citation } = <span class="kw">await</span> getCitation(item.id);   <span class="cm">// 后端生成 GB/T 7714 引文</span>
+  appendText(getCollabSession(docId).editor, ydoc, <span class="st">`【引用】${citation}`</span>, <span class="st">'human'</span>);
+  <span class="cm">// ↑ 以"人类"身份插入（引用是研究者自己插的，不算 AI 内容）</span>
+};</code></pre>
+<p>注意插入时作者标记用的是 <code>'human'</code>——这个细节体现了产品语义：<strong>AI 写的是蓝的，人类插引用是白的</strong>。</p>
+</section>
+
+<!-- ============ P15 ============ -->
+<section id="p15">
+<h2 class="part">Part 15 · 终极串讲：你打一个字，系统发生了什么</h2>
+<p>把前面所有知识串成一条完整的故事线（这也是面试/答辩最常被问的）：</p>
+
+<h3>15.1 场景一：你打开网页</h3>
+<div class="flow">
+  <span class="box">浏览器加载前端代码</span><span class="arrow">→</span><span class="box">App 组件启动</span><span class="arrow">→</span><span class="box">GET /api/bootstrap</span><span class="arrow">→</span><span class="box">后端查数据库</span><span class="arrow">→</span><span class="box">返回演示用户+文档</span><span class="arrow">→</span><span class="box">页面显示</span>
+</div>
+
+<h3>15.2 场景二：两个人同时编辑（协同的核心时刻）</h3>
+<div class="flow">
+  <span class="box">A 打字</span><span class="arrow">→</span><span class="box">本地 Yjs 生成增量</span><span class="arrow">→</span><span class="box">WebSocket 发给后端</span><span class="arrow">→</span><span class="box">后端转发给 B</span><span class="arrow">→</span><span class="box">B 的 Yjs 应用增量</span><span class="arrow">→</span><span class="box">B 屏幕出现文字</span>
+</div>
+<p>同时：A 停手 1.5 秒后 → PATCH /api/documents → 后端写哈希链日志 → 溯源链 +1 条。B 的光标位置也通过 awareness 消息实时同步给 A。</p>
+
+<h3>15.3 场景三：你点"启动文献检索"</h3>
+<div class="flow">
+  <span class="box">前端 POST /api/agents/invoke</span><span class="arrow">→</span><span class="box">Orchestrator 建会话</span><span class="arrow">→</span><span class="box">Research 节点：抽关键词→查 arXiv→降级本地</span><span class="arrow">→</span><span class="box">Writer 节点：生成草稿</span><span class="arrow">→</span><span class="box">Supervisor 节点：格式审查</span><span class="arrow">→</span><span class="box">返回 session_id</span><span class="arrow">→</span><span class="box">前端拉消息 + AI 内容蓝字入文档</span>
+</div>
+
+<h3>15.4 场景四：水印检测 + 导出</h3>
+<div class="flow">
+  <span class="box">前端取全文</span><span class="arrow">→</span><span class="box">POST /watermark/documents/{id}/detect</span><span class="arrow">→</span><span class="box">引擎算 z 分数</span><span class="arrow">→</span><span class="box">z&gt;4 → AI 生成</span><span class="arrow">→</span><span class="box">写水印记录+溯源日志</span><span class="arrow">→</span><span class="box">前端显示置信度条</span>
+</div>
+<p>导出时后端现场把整条哈希链重新算一遍，把"✅ 校验通过/❌ 被篡改"写进 Markdown 文件头——这就是"可信导出"。</p>
+<div class="tip">✅ 如果只记一件事：<strong>实时协作走 WebSocket（快、无状态），持久化与检测走 HTTP（慢、但要落库）</strong>。这两条通道的分工贯穿整个系统。</div>
+</section>
+
+<!-- ============ P16 ============ -->
+<section id="p16">
+<h2 class="part">Part 16 · 给新手的调试与学习建议</h2>
+<h3>16.1 遇到看不懂的代码怎么办</h3>
+<ol>
+  <li><strong>先看注释和 docstring</strong>：这个项目的注释质量很高，几乎每个文件开头都解释了"这个文件干嘛的"；</li>
+  <li><strong>从"入口"读起</strong>：后端从 main.py 开始，前端从 main.tsx → App.tsx 开始，顺着调用关系读，比乱翻文件高效得多；</li>
+  <li><strong>用"打印法"调试</strong>：Python 里 <code>print(变量)</code>，JS 里 <code>console.log(变量)</code>，在关键位置打印，看实际值是不是你猜的——这是新手最高效的调试方式；</li>
+  <li><strong>拆小验证</strong>：看不懂一大段，就把输入输出抄出来，在小脚本里单独跑那段逻辑。</li>
+</ol>
+<h3>16.2 动手实验清单（强烈推荐）</h3>
+<ul>
+  <li>把 <code>backend/config.py</code> 的 <code>WATERMARK_GAMMA</code> 改成 0.3，重启后端，看水印检测结果变化——你就理解了 gamma 的作用；</li>
+  <li>在 <code>watermark_engine.py</code> 的 <code>detect_watermark</code> 里加一行 <code>print(stats)</code>，用"检测粘贴的文本"功能看 z_score 的实际数值；</li>
+  <li>注释掉 <code>exclude=ws</code>，开两个标签页编辑，观察控制台消息风暴——你会永远记住"转发必须排除发送者"；</li>
+  <li>手动在数据库里改一条 op_logs 的 operation 内容，再点"溯源链"面板的校验——亲眼看"检测到篡改"。</li>
+</ul>
+<h3>16.3 推荐的学习路径</h3>
+<ol>
+  <li><strong>Python 基础</strong>：官方教程前 8 章（变量、容器、函数、类、文件、异常）就够读代码了；</li>
+  <li><strong>FastAPI</strong>：官方"First Steps"教程，30 分钟能看懂所有路由；</li>
+  <li><strong>React 基础</strong>：官方"Tic-Tac-Toe"教程，理解 useState 和组件；</li>
+  <li><strong>TypeScript</strong>：官网 5 分钟简介 + 本讲义 Part 10 就够；</li>
+  <li>最后回到自己的项目，按本讲义 Part 3-8（后端）和 Part 11-14（前端）逐文件对照读一遍，就彻底通了。</li>
+</ol>
+<div class="warn">⚠️ <strong>一个常见误区</strong>：不要试图"背代码"。你要背的是<strong>概念地图</strong>——"哪里是入口、哪里有锁、哪里会降级、两条通道怎么分工"。概念通了，代码只是查字典。</div>
+</section>
+
+<p style="text-align:center; color:var(--text3); font-size:13px; margin-top:32px;">—— 智溯系统 · 零基础代码讲义 · 完 ——<br>配合《系统代码深度详解.html》使用效果更佳：前者讲"概念"，后者讲"细节"。</p>
+
+
+
+</div>
+</body>
+</html>

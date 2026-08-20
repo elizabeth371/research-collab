@@ -1,0 +1,785 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>智溯系统 · 代码深度详解</title>
+<style>
+  :root {
+    --bg: #f7f7f5; --surface: #ffffff; --border: #e3e1da; --text: #2c2c2a;
+    --text2: #5f5e5a; --text3: #888780;
+    --blue: #185FA5; --blue-bg: #E6F1FB; --teal: #0F6E56; --teal-bg: #E1F5EE;
+    --purple: #534AB7; --purple-bg: #EEEDFE; --amber: #854F0B; --amber-bg: #FAEEDA;
+    --red: #A32D2D; --red-bg: #FCEBEB; --green: #3B6D11; --green-bg: #EAF3DE;
+    --code-bg: #f3f1ea; --mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: -apple-system, "Segoe UI", "Microsoft YaHei", "PingFang SC", sans-serif; line-height: 1.75; font-size: 15px; }
+  .container { max-width: 1080px; margin: 0 auto; padding: 24px 28px 80px; }
+
+  /* 顶部 */
+  .hero { background: linear-gradient(135deg, #123f6d 0%, #185FA5 60%, #2a6fb5 100%); color: #fff; border-radius: 16px; padding: 36px 40px; margin-bottom: 28px; }
+  .hero h1 { font-size: 28px; font-weight: 700; letter-spacing: 1px; }
+  .hero p { margin-top: 10px; font-size: 14px; opacity: .9; line-height: 1.7; }
+  .hero .tags { margin-top: 16px; display: flex; flex-wrap: wrap; gap: 8px; }
+  .hero .tags span { background: rgba(255,255,255,.15); border: 1px solid rgba(255,255,255,.25); padding: 3px 12px; border-radius: 999px; font-size: 12px; }
+
+  /* 目录 */
+  .toc { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px 24px; margin-bottom: 28px; }
+  .toc h2 { font-size: 16px; margin-bottom: 12px; color: var(--blue); }
+  .toc ol { columns: 2; column-gap: 40px; padding-left: 20px; }
+  .toc li { margin: 4px 0; font-size: 13.5px; break-inside: avoid; }
+  .toc a { color: var(--text2); text-decoration: none; }
+  .toc a:hover { color: var(--blue); text-decoration: underline; }
+
+  /* 章节 */
+  section { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 28px 32px; margin-bottom: 24px; }
+  h2.sec { font-size: 22px; color: var(--blue); border-bottom: 2px solid var(--blue-bg); padding-bottom: 10px; margin-bottom: 20px; }
+  h3 { font-size: 17px; color: var(--teal); margin: 26px 0 12px; }
+  h4 { font-size: 15px; color: var(--purple); margin: 20px 0 10px; }
+  p { margin: 10px 0; color: var(--text); }
+  ul, ol { margin: 8px 0 8px 24px; }
+  li { margin: 5px 0; }
+  strong { color: var(--text); }
+  code { font-family: var(--mono); font-size: 13px; background: var(--code-bg); padding: 2px 6px; border-radius: 4px; color: #7a2a8a; }
+  pre { background: #1e2430; color: #d8dee9; border-radius: 10px; padding: 16px 18px; overflow-x: auto; font-size: 13px; line-height: 1.6; margin: 12px 0; }
+  pre code { background: none; color: inherit; padding: 0; font-size: 13px; }
+  .kw { color: #81a1c1; } .fn { color: #88c0d0; } .st { color: #a3be8c; } .cm { color: #616e88; font-style: italic; } .num { color: #b48ead; }
+  table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 13.5px; }
+  th { background: var(--blue-bg); color: var(--blue); text-align: left; padding: 8px 12px; border: 1px solid var(--border); font-weight: 600; }
+  td { padding: 8px 12px; border: 1px solid var(--border); vertical-align: top; }
+  tr:nth-child(even) td { background: #fafaf8; }
+  .note { background: var(--amber-bg); border-left: 4px solid var(--amber); padding: 12px 16px; border-radius: 0 8px 8px 0; margin: 14px 0; font-size: 13.5px; }
+  .tip { background: var(--teal-bg); border-left: 4px solid var(--teal); padding: 12px 16px; border-radius: 0 8px 8px 0; margin: 14px 0; font-size: 13.5px; }
+  .warn { background: var(--red-bg); border-left: 4px solid var(--red); padding: 12px 16px; border-radius: 0 8px 8px 0; margin: 14px 0; font-size: 13.5px; }
+  .file-head { display: inline-block; font-family: var(--mono); font-size: 13px; background: var(--purple-bg); color: var(--purple); padding: 4px 12px; border-radius: 6px; margin: 8px 0; }
+  .flow { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 14px 0; font-size: 13px; }
+  .flow .box { background: var(--blue-bg); border: 1px solid var(--blue); color: var(--blue); padding: 6px 14px; border-radius: 8px; font-weight: 500; }
+  .flow .arrow { color: var(--text3); }
+  .card-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin: 14px 0; }
+  .metric { background: var(--bg); border-radius: 10px; padding: 14px 16px; }
+  .metric .label { font-size: 12px; color: var(--text3); }
+  .metric .value { font-size: 22px; font-weight: 700; color: var(--blue); margin-top: 2px; }
+  .backtop { display: block; text-align: right; font-size: 12.5px; color: var(--text3); text-decoration: none; margin-top: 12px; }
+  .backtop:hover { color: var(--blue); }
+  .hashdemo { font-family: var(--mono); font-size: 12px; background: #f0efea; border: 1px dashed var(--border); border-radius: 8px; padding: 12px; overflow-x: auto; white-space: nowrap; margin: 10px 0; color: #444; }
+</style>
+</head>
+<body>
+<div class="container">
+
+<div class="hero">
+  <h1>智溯 · 面向科研诚信的多 Agent 实时协同与版权溯源系统</h1>
+  <p>代码深度详解 —— 逐文件、逐函数、逐机制剖析「前端 React 协同编辑 + 后端 FastAPI + Yjs CRDT + Kirchenbauer 水印 + SHA-256 溯源链 + LangGraph 多 Agent」的完整实现，并解释每一个「为什么这么写」。</p>
+  <div class="tags">
+    <span>React 18 + TypeScript + Vite</span><span>Tiptap + Yjs CRDT</span><span>FastAPI + SQLAlchemy(async)</span><span>Kirchenbauer 水印</span><span>SHA-256 哈希链溯源</span><span>LangGraph 多 Agent</span>
+  </div>
+</div>
+
+<div class="toc">
+  <h2>📖 目录</h2>
+  <ol>
+    <li><a href="#s1">项目速览：这是什么系统</a></li>
+    <li><a href="#s2">技术栈全景与依赖选型</a></li>
+    <li><a href="#s3">目录结构总览</a></li>
+    <li><a href="#s4">系统架构与数据流</a></li>
+    <li><a href="#s5">数据库设计（7 张表逐表详解）</a></li>
+    <li><a href="#s6">后端入口与基础设施（main/config/database）</a></li>
+    <li><a href="#s7">ORM 模型层 models.py</a></li>
+    <li><a href="#s8">REST API 层（documents/agents/watermark/literature）</a></li>
+    <li><a href="#s9">WebSocket 协同端点 document_ws.py</a></li>
+    <li><a href="#s10">服务层（哈希链/水印/Agent编排/学术审查/arXiv/流缓冲）</a></li>
+    <li><a href="#s11">前端入口与工具层（main/App/lib）</a></li>
+    <li><a href="#s12">前端核心：协同编辑器 CollaborativeEditor</a></li>
+    <li><a href="#s13">前端功能面板（Agent/水印/溯源/文献）</a></li>
+    <li><a href="#s14">核心机制专题：协同编辑原理与踩坑</a></li>
+    <li><a href="#s15">核心机制专题：哈希链防篡改与并发锁</a></li>
+    <li><a href="#s16">核心机制专题：Kirchenbauer 水印数学原理</a></li>
+    <li><a href="#s17">核心机制专题：AI/人类作者着色机制</a></li>
+    <li><a href="#s18">一次完整交互的调用链串讲</a></li>
+    <li><a href="#s19">测试体系（29 个用例）</a></li>
+    <li><a href="#s20">已知限制与后续演进路线</a></li>
+  </ol>
+</div>
+
+<!-- ================= S1 ================= -->
+<section id="s1">
+  <h2 class="sec">1. 项目速览：这是什么系统</h2>
+  <p>「智溯」是一个<strong>面向科研诚信场景</strong>的<strong>多 Agent 实时协同编辑 + AIGC（AI 生成内容）可信溯源</strong>原型系统。它解决的核心问题是：<strong>在多人 + AI 协作撰写科研论文的过程中，如何让"谁写的、AI 写的还是人写的、内容有没有被篡改、是否含有 AI 水印"全程可审计、可追溯</strong>。</p>
+  <div class="card-grid">
+    <div class="metric"><div class="label">后端 Python 源文件</div><div class="value">15</div></div>
+    <div class="metric"><div class="label">前端 TS/TSX 源文件</div><div class="value">12</div></div>
+    <div class="metric"><div class="label">数据库表</div><div class="value">7</div></div>
+    <div class="metric"><div class="label">REST 端点</div><div class="value">18+</div></div>
+    <div class="metric"><div class="label">pytest 用例</div><div class="value">29</div></div>
+  </div>
+  <p>三大技术支柱，构成系统的"科研诚信"叙事闭环：</p>
+  <ul>
+    <li><strong>实时协同编辑</strong> —— Tiptap 富文本编辑器接入 <code>Yjs CRDT</code>（冲突无关复制数据类型），多人在线编辑同一文档零冲突收敛，多光标实时可见；</li>
+    <li><strong>AI/人类作者着色</strong> —— 每个字符携带 <code>author</code> 属性，AI 产出蓝色背景、人类输入白色背景，谁写的"一眼可见"；</li>
+    <li><strong>可信溯源</strong> —— 每次编辑动作写入 <code>OpLog</code> 操作日志，通过 <strong>SHA-256 哈希链</strong>串联，任一历史记录被篡改整条链失效；同时内置 <strong>Kirchenbauer 绿名单水印</strong>引擎，可对文本做 AI 生成检测（论文级统计检验）。</li>
+  </ul>
+  <p>这是一个典型的<strong>演示/原型 + 软著申报</strong>项目（见 <code>docs/软件说明书.md</code>），因此代码中有大量"骨架实现 + 预留接入点 + 自动降级"的设计——例如 Agent 不调用真实 LLM（规则引擎替代）、水印用字符级 tokenizer（预留 tiktoken/transformers 接入点）、数据库 PostgreSQL 未安装时自动回退 SQLite。这些"降级优先"的设计是理解本代码库的关键线索。</p>
+</section>
+
+<!-- ================= S2 ================= -->
+<section id="s2">
+  <h2 class="sec">2. 技术栈全景与依赖选型</h2>
+  <h3>2.1 后端（backend/requirements.txt）</h3>
+  <table>
+    <tr><th>依赖</th><th>用途</th><th>为什么选它</th></tr>
+    <tr><td>fastapi</td><td>REST + WebSocket 框架</td><td>原生支持 async、自动 OpenAPI 文档、Pydantic 校验，是 Python 异步 API 的事实标准</td></tr>
+    <tr><td>uvicorn</td><td>ASGI 服务器</td><td>FastAPI 官方推荐，支持 WebSocket 与热重载</td></tr>
+    <tr><td>sqlalchemy[asyncio]</td><td>异步 ORM</td><td>2.0 的 <code>Mapped/mapped_column</code> 类型注解风格 + async 会话，跨方言（PG/SQLite）支持好</td></tr>
+    <tr><td>asyncpg / aiosqlite</td><td>异步数据库驱动</td><td>分别对应 PostgreSQL 与 SQLite；代码通过"探测失败自动切换"实现零配置启动</td></tr>
+    <tr><td>pydantic / pydantic-settings</td><td>数据校验 + 配置管理</td><td>从环境变量/.env 读取配置，<code>lru_cache</code> 保证全局单例</td></tr>
+    <tr><td>httpx</td><td>异步 HTTP 客户端</td><td>调用 arXiv API 做实时文献检索</td></tr>
+    <tr><td>numpy</td><td>数值计算</td><td>水印引擎的词表洗牌（randperm）与 logits 向量操作</td></tr>
+    <tr><td>langgraph（可选）</td><td>多 Agent 图编排</td><td><strong>未安装自动降级为顺序执行</strong>，这是典型的"可选依赖"设计</td></tr>
+    <tr><td>pytest</td><td>测试</td><td>29 个用例覆盖哈希链/水印/学术审查/API 集成</td></tr>
+  </table>
+
+  <h3>2.2 前端（frontend/package.json）</h3>
+  <table>
+    <tr><th>依赖</th><th>用途</th><th>关键点</th></tr>
+    <tr><td>react@18 + react-dom</td><td>UI 框架</td><td>StrictMode 开发模式 double-mount 是多个"踩坑"的根源</td></tr>
+    <tr><td>@tiptap/*</td><td>富文本编辑器</td><td><code>@tiptap/extension-collaboration</code> 将 Yjs 接入 ProseMirror；<code>collaboration-cursor</code> 提供多光标</td></tr>
+    <tr><td>yjs@13</td><td>CRDT 引擎</td><td>冲突无关数据结构，多端自动收敛，无需中心协调</td></tr>
+    <tr><td>y-websocket@2</td><td>WebSocket 传输层</td><td>与后端自实现的 y-websocket 协议端点点对点对接</td></tr>
+    <tr><td>y-prosemirror</td><td>Yjs ↔ ProseMirror 桥接</td><td>将 Yjs 文档结构映射为 PM 文档，并做属性↔mark 双向映射</td></tr>
+    <tr><td>tailwindcss@3</td><td>样式</td><td>原子化 CSS，三栏布局与面板样式全部用它</td></tr>
+    <tr><td>vite@5</td><td>构建工具</td><td>dev server 代理 <code>/api</code> 与 <code>/ws</code> 到后端 8000 端口</td></tr>
+  </table>
+  <div class="note">💡 <strong>选型哲学</strong>：前后端都选择了"生态最主流、示例最多"的组件（React+Tiptap+Yjs / FastAPI+SQLAlchemy），这样开源参考代码（lm-watermarking、MarkLLM）才能无缝接入；同时把<strong>所有外部强依赖做成可选</strong>（langgraph、ypy、asyncpg），保证"没有任何数据库/任何网络也能跑起来"——这是演示系统的第一优先级。</div>
+</section>
+
+<!-- ================= S3 ================= -->
+<section id="s3">
+  <h2 class="sec">3. 目录结构总览</h2>
+  <pre><code>research-collab/
+├── frontend/                     <span class="cm"># React 客户端（12 个源码文件）</span>
+│   └── src/
+│       ├── App.tsx               <span class="cm"># 根组件：三栏布局 + 文档生命周期 + 会话管理</span>
+│       ├── main.tsx              <span class="cm"># 入口：ReactDOM.createRoot + StrictMode</span>
+│       ├── index.css             <span class="cm"># Tailwind + .tiptap 样式 + .author-ai/.author-human 着色</span>
+│       ├── components/
+│       │   ├── Editor/CollaborativeEditor.tsx   <span class="cm"># 协同编辑器（最核心）</span>
+│       │   ├── Agent/AgentPanel.tsx             <span class="cm"># 左栏：Agent 触发面板</span>
+│       │   ├── Watermark/WatermarkPanel.tsx     <span class="cm"># 右栏：水印检测面板</span>
+│       │   ├── Provenance/ProvenancePanel.tsx   <span class="cm"># 右栏：溯源链面板</span>
+│       │   └── Literature/LiteraturePanel.tsx   <span class="cm"># 右栏：文献检索面板</span>
+│       └── lib/
+│           ├── api.ts           <span class="cm"># REST 客户端 + snake_case→camelCase 映射</span>
+│           ├── collab.ts        <span class="cm"># Y.Doc/Provider 单例缓存（防重复连接）</span>
+│           └── yjs.ts           <span class="cm"># 作者标记/纯文本提取/插入工具</span>
+│
+├── backend/                      <span class="cm"># FastAPI 服务端（15 个 Python 文件）</span>
+│   ├── main.py                   <span class="cm"># 入口：lifespan 建表+种子、CORS、路由挂载</span>
+│   ├── config.py                 <span class="cm"># pydantic-settings 全局配置</span>
+│   ├── database.py               <span class="cm"># 异步引擎：PG→SQLite 自动回退</span>
+│   ├── models.py                 <span class="cm"># 6 个 ORM 模型（User/Document/OpLog/...）</span>
+│   ├── api/
+│   │   ├── documents.py          <span class="cm"># 文档 CRUD + 哈希链日志 + Markdown 导出</span>
+│   │   ├── agents.py             <span class="cm"># Agent 触发/状态/消息</span>
+│   │   ├── watermark.py          <span class="cm"># 水印检测(留痕) + 溯源链查询/校验</span>
+│   │   └── literature.py         <span class="cm"># 文献检索 + 引文生成</span>
+│   ├── services/
+│   │   ├── oplog_chain.py        <span class="cm"># SHA-256 哈希链 + 并发串行化锁</span>
+│   │   ├── watermark_engine.py   <span class="cm"># Kirchenbauer 水印（论文级）</span>
+│   │   ├── agent_orchestrator.py <span class="cm"># LangGraph 多 Agent 编排</span>
+│   │   ├── academic_review.py    <span class="cm"># 学术规范静态审查</span>
+│   │   ├── arxiv_client.py       <span class="cm"># arXiv API 实时检索</span>
+│   │   └── stream_buffer.py      <span class="cm"># LLM 流式缓冲 → Yjs 原子插入（预留）</span>
+│   ├── websocket/document_ws.py  <span class="cm"># /ws/{doc_id} y-websocket 纯转发端点</span>
+│   └── tests/                    <span class="cm"># 29 个 pytest 用例</span>
+│
+├── shared/types.ts               <span class="cm"># 前后端共享 TS 类型（User/Document/OpLog/...）</span>
+├── database/init.sql             <span class="cm"># PostgreSQL 建表脚本（可选）</span>
+├── docs/                         <span class="cm"># 软件说明书/测试报告/测试样例等</span>
+└── THIRD_PARTY/                  <span class="cm"># 开源许可（lm-watermarking Apache-2.0）</span></code></pre>
+  <p>分层遵循经典的三层结构：<strong>API 层（薄）→ 服务层（业务逻辑）→ 数据层（ORM）</strong>，前端按"组件 + 工具库"组织。唯一特殊的是 <code>shared/types.ts</code>——它被 Vite 的 <code>@shared</code> 别名直接引用，让前后端类型定义"单一来源"。</p>
+</section>
+
+<!-- ================= S4 ================= -->
+<section id="s4">
+  <h2 class="sec">4. 系统架构与数据流</h2>
+  <h3>4.1 双通道通信模型</h3>
+  <div class="flow">
+    <span class="box">前端 React</span><span class="arrow">─HTTP REST→</span><span class="box">FastAPI /api/*</span><span class="arrow">→</span><span class="box">SQLAlchemy async</span><span class="arrow">→</span><span class="box">PG / SQLite</span>
+  </div>
+  <div class="flow">
+    <span class="box">前端 Yjs</span><span class="arrow">─WebSocket /ws/{doc_id}→</span><span class="box">纯转发中继</span><span class="arrow">→</span><span class="box">房间内其他客户端</span>
+  </div>
+  <ul>
+    <li><strong>REST 通道</strong>：负责文档 CRUD、Agent 触发、水印检测、溯源链查询、文献检索等"低频、需持久化"的操作；</li>
+    <li><strong>WebSocket 通道</strong>：只做<strong>实时协同编辑的增量同步</strong>，实现 y-websocket 协议，服务端不持有任何 CRDT 状态（纯转发）；</li>
+    <li><strong>两条通道的配合</strong>：编辑器内容变更 → 防抖 1.5s 后走 REST 落库（写入溯源链）；实时同步走 WS；Agent 产出经 REST 触发、由前端直接以本地事务插入 Yjs（走 WS 广播给他人）。</li>
+  </ul>
+  <h3>4.2 纯转发模式的本质</h3>
+  <p>这是本项目最重要的架构决策。<strong>服务端不保存 Yjs 状态</strong>，只维护"每个文档房间的连接集合"。客户端通过 CRDT 算法自行收敛——当 A、B 同时编辑产生冲突时，Yjs 的 <code>Y.Text</code>/<code>Y.XmlFragment</code> 结构保证双方最终得到一致结果，无需服务器裁决。服务端职责被降为"消息路由器"：</p>
+  <pre><code><span class="kw">async def</span> <span class="fn">collaborative_endpoint</span>(websocket, doc_id):
+    <span class="kw">await</span> room.<span class="fn">connect</span>(doc_id, websocket)   <span class="cm"># 加入房间（声明 yjs subprotocol）</span>
+    <span class="kw">while True</span>:
+        data = <span class="kw">await</span> websocket.<span class="fn">receive_bytes</span>()
+        msg_type = data[<span class="num">0</span>]
+        <span class="kw">if</span> msg_type == MSG_SYNC:        <span class="cm"># 0x00 增量更新 → 转发给其他人</span>
+            <span class="kw">await</span> <span class="fn">handle_sync</span>(websocket, doc_id, data[<span class="num">1</span>:], room)
+        <span class="kw">elif</span> msg_type == MSG_AWARENESS:  <span class="cm"># 0x01 光标/在线 → 原样转发</span>
+            <span class="kw">await</span> <span class="fn">handle_awareness</span>(websocket, doc_id, data, room)</code></pre>
+  <div class="tip">✅ <strong>为什么这么设计</strong>：a) 服务端无状态 → 天然支持水平扩展、崩溃不丢状态；b) 避免在 Python 侧维护 CRDT 状态的高成本；c) 开发量小，只需正确实现协议编解码。代价是"刷新后从数据库明文快照恢复"，见第 20 节已知限制。</div>
+</section>
+
+<!-- ================= S5 ================= -->
+<section id="s5">
+  <h2 class="sec">5. 数据库设计（7 张表逐表详解）</h2>
+  <p>对应 <code>models.py</code> 的 6 个模型 + 1 张中间表，SQLAlchemy 自动建表；<code>database/init.sql</code> 提供可选的 PostgreSQL 手工建表脚本。</p>
+  <h3>5.1 跨方言类型技巧（先看懂这个，后面都好懂）</h3>
+  <pre><code><span class="cm"># PostgreSQL 用原生 UUID，SQLite 用 CHAR(32)；JSONB↔JSON；BYTEA↔BLOB</span>
+UUID_TYPE = Uuid().with_variant(PG_UUID(as_uuid=True), <span class="st">"postgresql"</span>)
+JSONB_TYPE = JSON().with_variant(PG_JSONB, <span class="st">"postgresql"</span>)
+BYTEA_TYPE = LargeBinary().with_variant(PG_BYTEA, <span class="st">"postgresql"</span>)</code></pre>
+  <p>SQLAlchemy 的 <code>with_variant</code> 让<strong>同一套模型代码在两种数据库上生成不同 DDL</strong>——这是"零配置可运行"在数据层的支撑。</p>
+  <table>
+    <tr><th>表</th><th>模型类</th><th>关键字段</th><th>设计意图</th></tr>
+    <tr><td><code>users</code></td><td>User</td><td>username/email 唯一；role（admin/researcher/collaborator/<strong>ai_agent</strong>）</td><td><strong>AI Agent 也作为"用户"参与系统</strong>——统一的作者模型，溯源日志 user_id 可以直接指向 AI 账号</td></tr>
+    <tr><td><code>documents</code></td><td>Document</td><td>title、owner_id、<strong>yjs_state(BYTEA 可空)</strong>、content(TEXT)、watermark_status(0/1/2)、agent_session_id</td><td>yjs_state 预留 CRDT 快照持久化；content 是明文快照（演示期主用）；watermark_status 记录检测结论</td></tr>
+    <tr><td><code>document_collaborators</code></td><td>DocumentCollaborator</td><td>document_id + user_id（联合唯一）</td><td>文档↔协作者多对多中间表（当前演示未实际使用，属预留）</td></tr>
+    <tr><td><code>op_logs</code></td><td>OpLog</td><td>op_type 约束 5 类；operation(JSONB)；<strong>prev_hash + current_hash</strong>（current_hash 唯一）</td><td>版权溯源哈希链核心表，见第 15 节</td></tr>
+    <tr><td><code>watermark_records</code></td><td>WatermarkRecord</td><td>model_name、gamma、delta、<strong>secret_key(BYTEA)</strong>、token_seq(JSONB)</td><td>保存每次检测的参数与密钥，供将来"同一密钥复现绿名单"验证</td></tr>
+    <tr><td><code>literature</code></td><td>Literature</td><td>title/authors/year/source/abstract/keywords/url</td><td>ResearchAgent 的本地检索语料（8 条种子数据）</td></tr>
+    <tr><td><code>permission_configs</code></td><td>PermissionConfig</td><td>collab_mode / watermark_policy / export_policy（CHECK 约束）</td><td>文档级权限策略（纯预留，未接入路由）</td></tr>
+  </table>
+  <div class="note">💡 <strong>为什么用 UUID 而不是自增 ID</strong>：分布式协同场景下自增 ID 需要中心协调；UUID 让任意端离线也能生成全局唯一 ID，且演示用固定 UUID（<code>00000000-...-0001</code>）可让种子数据幂等。外键全部 <code>ondelete="CASCADE"</code>，删文档即级联删除日志与水印记录。</div>
+</section>
+
+<!-- ================= S6 ================= -->
+<section id="s6">
+  <h2 class="sec">6. 后端入口与基础设施（main.py / config.py / database.py）</h2>
+
+  <h3>6.1 config.py —— 一切配置的单一来源</h3>
+  <p>用 pydantic-settings 定义配置类，<code>SettingsConfigDict(env_file=".env")</code> 支持环境变量覆盖。三组关键配置：</p>
+  <ul>
+    <li><strong>CORS</strong>：只允许 <code>localhost:5173</code>（Vite dev server）跨域；</li>
+    <li><strong>数据库</strong>：<code>DATABASE_URL</code> 默认指向 PostgreSQL；</li>
+    <li><strong>水印与哈希链参数</strong>：<code>WATERMARK_GAMMA=0.5</code>（绿名单比例）、<code>WATERMARK_DELTA=2.0</code>（logits 偏移）、<code>WATERMARK_SECRET_KEY</code>、<code>HASHCHAIN_SALT</code>——这些是算法正确性的关键，见第 16 节。</li>
+  </ul>
+  <pre><code><span class="kw">@lru_cache</span>
+<span class="kw">def</span> <span class="fn">get_settings</span>() -> Settings:
+    <span class="kw">return</span> Settings()   <span class="cm"># lru_cache：进程内只加载一次 .env</span>
+
+settings: Settings = <span class="fn">get_settings</span>()   <span class="cm"># 模块级导出，全项目 from config import settings</span></code></pre>
+
+  <h3>6.2 database.py —— 自动回退引擎（本项目最巧妙的工程之一）</h3>
+  <p>核心函数 <code>_create_engine()</code>：</p>
+  <pre><code><span class="kw">def</span> <span class="fn">_create_engine</span>():
+    <span class="kw">try</span>:
+        <span class="kw">import</span> asyncpg
+        engine = <span class="fn">create_async_engine</span>(pg_url, pool_size=<span class="num">10</span>,
+                                       max_overflow=<span class="num">20</span>, pool_pre_ping=<span class="kw">True</span>,
+                                       connect_args={<span class="st">"timeout"</span>: <span class="num">3</span>})  <span class="cm"># 3 秒快速失败</span>
+        ...
+        ok = <span class="fn">asyncio.run</span>(<span class="fn">_probe</span>())        <span class="cm"># 模块导入时真实连一次 SELECT 1</span>
+        <span class="kw">if</span> ok: <span class="kw">return</span> engine
+        <span class="cm"># 失败 → 掉进下面的 SQLite 回退分支</span>
+    <span class="kw">except</span> ImportError: ...
+    <span class="cm"># 回退：SQLite 文件库 + 手动开启外键约束</span>
+    engine = <span class="fn">create_async_engine</span>(<span class="st">"sqlite+aiosqlite:///./research_colab.db"</span>)
+    <span class="kw">@event.listens_for</span>(engine.sync_engine, <span class="st">"connect"</span>)
+    <span class="kw">def</span> <span class="fn">_set_sqlite_pragma</span>(conn, _):
+        cursor.<span class="fn">execute</span>(<span class="st">"PRAGMA foreign_keys=ON"</span>)  <span class="cm"># SQLite 默认不启用外键！</span></code></pre>
+  <p>值得注意的三个细节：</p>
+  <ul>
+    <li><strong>双保险回退</strong>：模块导入时探测一次；若导入时事件循环已在运行（uvicorn 场景）无法用 <code>asyncio.run</code>，则延迟到 <code>init_db()</code> 建表失败时再重建 SQLite 引擎（<code>global engine</code> 重新赋值）；</li>
+    <li><strong>SQLite 外键陷阱</strong>：SQLite 默认 <code>foreign_keys=OFF</code>，必须用 <code>event.listens_for</code> 在每个连接建立时执行 PRAGMA，否则级联删除不生效；</li>
+    <li><strong>请求级会话</strong>：<code>get_db()</code> 是 FastAPI 依赖，用 <code>async with async_session_factory() as session: yield session</code> 保证每个请求独立会话、用完自动关闭。</li>
+  </ul>
+
+  <h3>6.3 main.py —— 应用装配与种子数据</h3>
+  <p><code>lifespan</code> 异步上下文管理器在应用启动/关闭时执行：</p>
+  <pre><code><span class="kw">@asynccontextmanager</span>
+<span class="kw">async def</span> <span class="fn">lifespan</span>(app):
+    <span class="kw">await</span> <span class="fn">init_db</span>()               <span class="cm"># 1. 建表</span>
+    <span class="kw">await</span> <span class="fn">seed_demo_data</span>()       <span class="cm"># 2. 演示用户 + 演示文档（幂等）</span>
+    <span class="kw">await</span> <span class="fn">seed_literature</span>()     <span class="cm"># 3. 文献种子语料（8 篇真实论文元数据）</span>
+    <span class="kw">yield</span></code></pre>
+  <ul>
+    <li><strong>固定 UUID 种子</strong>：<code>DEMO_USER_ID = 00000000-0000-4000-8000-000000000001</code>、<code>DEMO_DOC_ID = ...-0000000000a1</code>，前端通过 <code>/api/bootstrap</code> 获取；</li>
+    <li><strong>幂等性</strong>：<code>db.get()</code> 判断存在即跳过，多次重启不重复插入；</li>
+    <li><strong>种子文献</strong>：8 条覆盖水印算法（Kirchenbauer 原文）、CRDT（Yjs 论文）、多 Agent、RAG、PROV 溯源等主题——它们是 ResearchAgent 离线降级时的检索源；</li>
+    <li><strong>路由挂载</strong>：4 个 REST router + 1 个 WebSocket router；<code>/api/health</code> 健康检查；<code>/api/bootstrap</code> 返回演示用户与文档列表。</li>
+  </ul>
+  <div class="tip">✅ 种子数据全部<strong>中文摘要 + 真实 arXiv 编号/URL</strong>，让演示链路即使离线也有"真实感"，这是演示系统的重要细节。</div>
+</section>
+
+<!-- ================= S7 ================= -->
+<section id="s7">
+  <h2 class="sec">7. ORM 模型层 models.py</h2>
+  <p>六个模型的具体字段已在上文表格列出，这里重点讲三个"非显而易见"的设计：</p>
+  <h3>7.1 User 表承担 AI 作者身份</h3>
+  <pre><code>role: Mapped[str] = mapped_column(String(<span class="num">32</span>), nullable=<span class="kw">False</span>, default=<span class="st">"researcher"</span>)
+<span class="cm"># CheckConstraint("role IN ('admin','researcher','collaborator','ai_agent')")</span></code></pre>
+  <p><strong>为什么</strong>：溯源链要回答"这段是 AI 写的"，那 AI 就必须在用户体系里有身份。虽然当前演示里 Agent 写日志用的是文档 owner_id，但把 <code>ai_agent</code> 预留为合法角色，为将来"AI 用自己的账号署名"铺路。</p>
+  <h3>7.2 OpLog 的哈希链字段设计</h3>
+  <pre><code>prev_hash: Mapped[str] = mapped_column(String(<span class="num">64</span>), nullable=<span class="kw">False</span>, default=<span class="st">""</span>)
+current_hash: Mapped[str] = mapped_column(String(<span class="num">64</span>), nullable=<span class="kw">False</span>, unique=<span class="kw">True</span>)</code></pre>
+  <ul>
+    <li><code>prev_hash</code> 默认空串表示链首；</li>
+    <li><code>current_hash</code> 加 <strong>UNIQUE 约束</strong>——同一文档两条日志哈希相同即违反约束。这个约束既是防篡改保证，也<strong>引发了并发写冲突缺陷 D1</strong>（详见第 15 节），最终用应用层锁解决。</li>
+  </ul>
+  <h3>7.3 关系与级联</h3>
+  <p><code>Document.owner → User</code>；<code>Document.collaborators → User（secondary 中间表）</code>；<code>OpLog/WatermarkRecord → Document（ondelete=CASCADE）</code>。注意 <code>lazy="selectin"</code> 用于 collaborators，避免 N+1 查询。</p>
+</section>
+
+<!-- ================= S8 ================= -->
+<section id="s8">
+  <h2 class="sec">8. REST API 层（4 个路由文件）</h2>
+
+  <h3>8.1 api/documents.py —— 文档 CRUD + 溯源日志 + 导出</h3>
+  <p>端点一览：</p>
+  <table>
+    <tr><th>端点</th><th>方法</th><th>作用</th></tr>
+    <tr><td><code>/api/documents</code></td><td>GET/POST</td><td>列表（可按 owner_id 过滤）/ 创建</td></tr>
+    <tr><td><code>/api/documents/{doc_id}</code></td><td>GET/PATCH/DELETE</td><td>详情 / 更新 / 删除</td></tr>
+    <tr><td><code>/api/documents/{doc_id}/export</code></td><td>GET</td><td>导出 Markdown（含溯源元数据）</td></tr>
+    <tr><td><code>/api/documents/{doc_id}/yjs-state</code></td><td>GET/PUT</td><td>Yjs 快照读取/保存（base64）</td></tr>
+  </table>
+  <p><strong>核心逻辑 <code>update_document</code></strong>——内容更新时自动写溯源日志：</p>
+  <pre><code><span class="kw">async with</span> <span class="fn">oplog_append_lock</span>(doc_id):        <span class="cm"># ① 串行化锁（D1 修复）</span>
+    doc = <span class="kw">await</span> db.<span class="fn">get</span>(Document, doc_id)
+    data = payload.<span class="fn">model_dump</span>(exclude_unset=<span class="kw">True</span>)
+    operator_id = data.<span class="fn">pop</span>(<span class="st">"operator_id"</span>, <span class="kw">None</span>) <span class="kw">or</span> doc.owner_id  <span class="cm"># ② 溯源元数据剥离</span>
+    content_changed = <span class="st">"content"</span> <span class="kw">in</span> data <span class="kw">and</span> data[<span class="st">"content"</span>] != doc.content
+    <span class="kw">for</span> field, value <span class="kw">in</span> data.<span class="fn">items</span>(): <span class="fn">setattr</span>(doc, field, value)
+    <span class="kw">if</span> content_changed:
+        <span class="kw">await</span> <span class="fn">_append_content_log</span>(db, doc, operator_id, old_content, doc.content)  <span class="cm"># ③ 写哈希链日志</span></code></pre>
+  <p><code>_append_content_log</code> 的要点：</p>
+  <ul>
+    <li>读该文档链尾 <code>current_hash</code> 作为 <code>prev_hash</code>；</li>
+    <li>首次内容写入判定 <code>op_type='insert'</code>，后续修改判定 <code>'replace'</code>；</li>
+    <li><strong>先 <code>db.flush()</code> 拿到数据库时间戳，再计算 current_hash</strong>——保证校验时用同一时间戳（微妙且关键，否则哈希对不上）；</li>
+    <li>operation 只存元数据（长度/头部 200 字/增量），不存全文，控制体积。</li>
+  </ul>
+  <p><strong>导出端点</strong>用正则剥离 HTML 标签、逐段输出，并在文件头写入：导出时间、字数、日志条数、<strong>溯源链校验结果</strong>（现场重新走一遍链校验）、水印记录、GB/T 7714 参考文献列表。文件名用 RFC 5987 的 <code>filename*=UTF-8''...</code> 编码支持中文。</p>
+
+  <h3>8.2 api/agents.py —— Agent 触发与查询</h3>
+  <pre><code>orchestrator = OrchestratorService()   <span class="cm"># 全局单例：跨请求保留会话</span>
+
+<span class="kw">@router.post</span>(<span class="st">"/invoke"</span>, status_code=<span class="num">202</span>)
+<span class="kw">async def</span> <span class="fn">invoke_agent</span>(payload):
+    session_id = <span class="kw">await</span> orchestrator.<span class="fn">start_session</span>(doc_id=..., agent_type=..., instruction=...)
+    <span class="kw">return</span> {<span class="st">"accepted"</span>: <span class="kw">True</span>, <span class="st">"session_id"</span>: session_id, ...}</code></pre>
+  <ul>
+    <li>返回 202 Accepted 语义（注释声明未来接 BackgroundTasks/Celery），当前<strong>同步执行</strong>；</li>
+    <li>会话状态与消息都存在<strong>进程内存字典</strong> <code>orchestrator._sessions</code>，通过 GET <code>/sessions/{id}/messages</code> 轮询回放；</li>
+    <li>消息映射为前端 camelCase 的 <code>AgentMessage</code> 结构（sessionId/agentType/phase...）。</li>
+  </ul>
+
+  <h3>8.3 api/watermark.py —— 检测 + 留痕 + 溯源链</h3>
+  <p>四个端点：</p>
+  <table>
+    <tr><th>端点</th><th>作用</th></tr>
+    <tr><td><code>POST /detect</code></td><td>任意文本水印检测（不持久化）</td></tr>
+    <tr><td><code>POST /documents/{id}/detect</code></td><td><strong>整篇文档检测并留痕</strong>：写 WatermarkRecord + 追加 op_type='watermark_checked' 溯源日志</td></tr>
+    <tr><td><code>GET /documents/{id}/records</code></td><td>水印检测历史</td></tr>
+    <tr><td><code>GET /documents/{id}/provenance</code> / <code>/provenance/verify</code></td><td>溯源链列表 / 完整性校验</td></tr>
+  </table>
+  <p>"检测并留痕"是最能体现产品逻辑的端点：<strong>检测动作本身也进哈希链</strong>，让"什么时间、用什么模型、检测了什么结论"全部可追溯，形成完整证据链。同样包在 <code>oplog_append_lock(doc_id)</code> 中防并发。</p>
+  <p><code>verify_provenance</code> 校验规则：① 每条 <code>current_hash == compute_hash(prev_hash, operation, created_at)</code>；② 每条 <code>prev_hash == 前一条的 current_hash</code>；③ 链首 prev_hash 必须为空串。任一不满足即 <code>valid=False</code>。</p>
+
+  <h3>8.4 api/literature.py —— 文献检索与引文</h3>
+  <ul>
+    <li><code>GET /search?q=</code>：SQL <code>ilike</code> 模糊匹配标题/摘要/关键词/作者，空关键词返回最近文献（按年份降序）；</li>
+    <li><code>GET /{id}/citation</code>：生成 <strong>GB/T 7714 近似格式</strong>（<code>作者. 题名[J]. 来源, 年份.</code>）与 <strong>BibTeX</strong>（用首位作者 + 年份构造 key）。</li>
+  </ul>
+  <div class="note">💡 检索是简单的"包含匹配"，注释明确说明是骨架阶段，后续可接入向量检索/外部源——演示系统"够用即可"的取舍。</div>
+</section>
+
+<!-- ================= S9 ================= -->
+<section id="s9">
+  <h2 class="sec">9. WebSocket 协同端点 document_ws.py（协议级详解）</h2>
+  <p>这是全项目<strong>工程上最容易出错、踩坑最多</strong>的文件。它实现了 y-websocket 服务端协议的"最小可用子集"。</p>
+
+  <h3>9.1 消息协议</h3>
+  <table>
+    <tr><th>首字节</th><th>消息类型</th><th>第二字节（SYNC 子类型）</th><th>说明</th></tr>
+    <tr><td>0x00</td><td>SYNC</td><td>0x00 STEP1 / 0x01 STEP2 / 0x02 UPDATE</td><td>CRDT 状态同步</td></tr>
+    <tr><td>0x01</td><td>AWARENESS</td><td>—</td><td>光标/在线状态（多光标）</td></tr>
+    <tr><td>0x02</td><td>AUTH</td><td>—</td><td>鉴权（预留，当前接受一切）</td></tr>
+  </table>
+
+  <h3>9.2 三个关键编码函数</h3>
+  <pre><code><span class="kw">def</span> <span class="fn">encode_var_uint</span>(value):   <span class="cm"># LEB128 变长无符号整数</span>
+    out = <span class="fn">bytearray</span>()
+    <span class="kw">while True</span>:
+        b = value & <span class="num">0x7F</span>; value >>= <span class="num">7</span>
+        <span class="kw">if</span> value: out.<span class="fn">append</span>(b | <span class="num">0x80</span>)
+        <span class="kw">else</span>: out.<span class="fn">append</span>(b); <span class="kw">break</span>
+    <span class="kw">return</span> <span class="fn">bytes</span>(out)
+
+<span class="kw">def</span> <span class="fn">encode_var_uint8_array</span>(payload):  <span class="cm"># [varUint(长度), 字节...]</span>
+    <span class="kw">return</span> <span class="fn">encode_var_uint</span>(<span class="fn">len</span>(payload)) + payload</code></pre>
+  <p><strong>为什么必须用 varUint 长度前缀</strong>：Yjs 的二进制协议把 update/state vector 打包成 <code>varUint8Array</code>——先写一个 LEB128 编码的长度，再跟原始字节。如果直接裸发字节，接收端 <code>lib0</code> 会把第一个字节当成长度解析，导致解码错位。</p>
+
+  <h3>9.3 三个必须记住的"踩坑修复"（README 明确记录）</h3>
+  <ul>
+    <li><strong>空 update 必须是 <code>[0x00, 0x00]</code></strong>：delete 集与插入集长度均为 0 的编码结果。发送 <code>[0x00]</code>（单字节）或裸空字节都会让客户端 <code>applyUpdate</code> 抛 <code>Unexpected end of array</code>；</li>
+    <li><strong>SYNC_STEP1 回复</strong>：客户端发状态向量后，纯转发服务端没有状态可回，就回一个空 update（<code>00 01 02 00 00</code>），客户端据此进入 <code>synced</code> 状态；</li>
+    <li><strong>转发必须排除发送者</strong>：SYNC_UPDATE 与 AWARENESS 都 <code>exclude=ws</code>，否则消息在 A→B→A 之间无限回环（意识状态时钟无限递增的消息风暴）。</li>
+  </ul>
+
+  <h3>9.4 RoomManager 房间管理</h3>
+  <pre><code><span class="kw">class</span> <span class="fn">RoomManager</span>:
+    <span class="kw">def</span> <span class="fn">__init__</span>(self):
+        self._connections: Dict[str, Set[WebSocket]] = {}   <span class="cm"># doc_id → 连接集合</span>
+    <span class="kw">async def</span> <span class="fn">connect</span>(self, doc_id, ws):
+        <span class="kw">await</span> ws.<span class="fn">accept</span>(subprotocol=<span class="st">"yjs"</span>)          <span class="cm"># 声明子协议</span>
+        self._connections.<span class="fn">setdefault</span>(doc_id, <span class="fn">set</span>()).<span class="fn">add</span>(ws)</code></pre>
+  <ul>
+    <li><code>subprotocol="yjs"</code>：客户端 <code>WebsocketProvider</code> 探测 <code>['yjs', 'ycrdt,0.4.2']</code>，不声明会握手失败；</li>
+    <li>广播时对异常连接做"剔除"（<code>disconnect</code>），防止死连接阻塞；</li>
+    <li><code>WS_MAX_CLIENTS_PER_DOC=64</code> 配置项存在但未强制限制（预留）。</li>
+  </ul>
+  <p>文件末尾还提供 <code>broadcast_state(doc_id, update)</code> 供 AgentOrchestrator/StreamBufferService 将来把 AI 产出实时推给房间——目前未被调用（Agent 产出由前端直接插入）。</p>
+</section>
+
+<!-- ================= S10 ================= -->
+<section id="s10">
+  <h2 class="sec">10. 服务层（5 个核心服务）</h2>
+
+  <h3>10.1 services/oplog_chain.py —— 哈希链 + 并发锁</h3>
+  <p>哈希计算：</p>
+  <pre><code><span class="kw">@staticmethod</span>
+<span class="kw">def</span> <span class="fn">compute_hash</span>(prev_hash, operation, timestamp, *, salt=<span class="kw">None</span>):
+    ts = timestamp.<span class="fn">timestamp</span>() <span class="kw">if</span> <span class="fn">isinstance</span>(timestamp, datetime) <span class="kw">else</span> <span class="fn">float</span>(timestamp)
+    op_json = json.<span class="fn">dumps</span>(operation, ensure_ascii=<span class="kw">False</span>, sort_keys=<span class="kw">True</span>)  <span class="cm"># 稳定序列化！</span>
+    payload = <span class="st">f"</span>{prev_hash}<span class="st">|</span>{op_json}<span class="st">|</span>{ts:.6f}<span class="st">|</span>{salt}<span class="st">"</span>
+    <span class="kw">return</span> hashlib.<span class="fn">sha256</span>(payload.<span class="fn">encode</span>(<span class="st">"utf-8"</span>)).<span class="fn">hexdigest</span>()</code></pre>
+  <ul>
+    <li><strong>稳定序列化</strong>：<code>sort_keys=True</code> + <code>ensure_ascii=False</code> 保证同一 operation 在不同语言/环境序列化结果一致（否则 JSON 键序变化会导致哈希不同）；</li>
+    <li><strong>时间戳精度</strong>：<code>{ts:.6f}</code> 固定 6 位小数，避免浮点表示抖动；</li>
+    <li><strong>salt</strong>：加盐防止彩虹表式重放攻击。</li>
+  </ul>
+  <p><code>verify_chain</code> 从空串出发逐条重算比对，链上任何篡改都会在"后继条目 prev_hash 对不上"或"重算哈希不匹配"处断裂。</p>
+  <p><strong>并发锁（缺陷 D1 修复）</strong>——这是项目自我修复的典范：</p>
+  <pre><code>_oplog_append_locks: Dict[str, asyncio.Lock] = {}
+_oplog_append_locks_guard = threading.Lock()   <span class="cm"># 保护字典本身的并发</span>
+
+<span class="kw">def</span> <span class="fn">oplog_append_lock</span>(doc_id) -> asyncio.Lock:
+    key = <span class="fn">str</span>(doc_id)
+    <span class="kw">with</span> _oplog_append_locks_guard:
+        lock = _oplog_append_locks.<span class="fn">get</span>(key)
+        <span class="kw">if</span> lock <span class="kw">is</span> <span class="kw">None</span>:
+            lock = asyncio.Lock(); _oplog_append_locks[key] = lock
+        <span class="kw">return</span> lock</code></pre>
+  <div class="warn">⚠️ <strong>D1 缺陷背景</strong>：并发 PATCH 同一文档时，两个请求同时读到相同链尾，在相同秒内（SQLite 时间戳秒级精度）算出相同 <code>current_hash</code> → 违反 UNIQUE 约束 → 500 且溯源链断裂。修复方案是<strong>按 doc_id 粒度的进程内 asyncio.Lock</strong>，把"读链尾→写日志→commit"整段串行化。锁字典用 <code>threading.Lock</code> 保护（asyncio.Lock 在 Python 3.10+ 不再有 loop 绑定问题，可直接复用）。</div>
+
+  <h3>10.2 services/watermark_engine.py —— 论文级水印（详见第 16 节）</h3>
+  <p>此处先给骨架：类 <code>WatermarkEngine</code> 核心方法：<code>_seed_rng</code>（论文式 PRF 种子）、<code>_green_list_mask</code>（词表洗牌取绿名单）、<code>embed_watermark</code>（logits 加 delta）、<code>_tokenize</code>（字符级）、<code>_compute_z_score</code>/<code>_compute_p_value</code>（统计检验）、<code>_score_sequence</code>（评分，支持 bigram 去重）、<code>detect_watermark</code>（对外检测入口）、<code>demo_generate</code>（模拟生成演示）。</p>
+
+  <h3>10.3 services/agent_orchestrator.py —— LangGraph 编排（详见第 4/17 节）</h3>
+  <p>先讲<strong>降级设计</strong>：</p>
+  <pre><code><span class="kw">try</span>:
+    <span class="kw">from</span> langgraph.graph <span class="kw">import</span> StateGraph, END
+    _LANGGRAPH_AVAILABLE = <span class="kw">True</span>
+<span class="kw">except</span> ImportError:
+    _LANGGRAPH_AVAILABLE = <span class="kw">False</span>
+    <span class="kw">class</span> <span class="fn">StateGraph</span>:  <span class="cm"># 占位类，保证 import 不炸</span>
+        <span class="kw">def</span> <span class="fn">__init__</span>(self, state_schema): ...</code></pre>
+  <p>未装 langgraph 时 <code>build_agent_graph()</code> 返回 <code>_FallbackGraph</code>，其 <code>ainvoke</code> 顺序调用三个节点函数——<strong>结果与真实图一致</strong>，保证任何环境都能演示。三个节点：</p>
+  <ul>
+    <li><code>research_agent_node</code>：关键词抽取（<code>_extract_keywords</code> 过滤 60+ 停用词）→ 优先 arXiv（仅 ASCII 词，AND 收紧）→ 失败降级本地 literature 表 → 兜底模拟结论；</li>
+    <li><code>writer_agent_node</code>：<code>asyncio.sleep(0.1)</code> 模拟耗时，返回模板化草稿；</li>
+    <li><code>supervisor_agent_node</code>：调用 <code>AcademicReviewEngine.review(draft)</code>，把 issues 拼成导师意见（✅通过 / ❌需修改）。</li>
+  </ul>
+  <p>条件边 <code>should_retry</code>：反馈含"重写/驳回/打回"则回到 writer，否则 END。State 用 <code>TypedDict</code> 定义 11 个字段（doc_id、research_input/output、draft、messages...）。</p>
+
+  <h3>10.4 services/academic_review.py —— 导师规则引擎</h3>
+  <p><code>AcademicReviewEngine.review(text)</code> 执行 5 类静态检查：</p>
+  <table>
+    <tr><th>#</th><th>检查项</th><th>规则</th><th>级别</th></tr>
+    <tr><td>1</td><td>篇幅完整性</td><td>&lt;100 字 error；&lt;300 字 warning；段落 &lt;3 warning</td><td>error/warning</td></tr>
+    <tr><td>2</td><td>引用格式</td><td>有引用编号但无 [J]/[C]/[M] 类型标识 → warning</td><td>warning</td></tr>
+    <tr><td>3</td><td>编号连续性</td><td>正文引用编号 1..max 缺号 → error（只统计"参考文献"章节前的正文）</td><td>error</td></tr>
+    <tr><td>4</td><td>参考文献章节</td><td>有引用无章节 error；有章节无引用 warning</td><td>error/warning</td></tr>
+    <tr><td>5</td><td>条数匹配</td><td>最大引用编号 &gt; 参考文献条数 → warning</td><td>warning</td></tr>
+  </table>
+  <p>一个精巧细节：<code>_collect_stats</code> 用 <code>text.split("参考文献", 1)[0]</code> 把正文与文献列表切开，<strong>避免文献列表行首的 [n] 被误当成正文引用而掩盖跳号</strong>。最终 <code>passed = 无 error 级别问题</code>。</p>
+
+  <h3>10.5 services/arxiv_client.py —— 实时文献检索</h3>
+  <ul>
+    <li>调用 <code>export.arxiv.org/api/query</code>（Atom XML），参数 <code>search_query/sortBy=relevance</code>；</li>
+    <li>解析用<strong>轻量正则</strong>而非 XML 库：<code>xml.split("&lt;entry&gt;")[1:]</code> 分段，<code>_extract_tag</code>/<code>_extract_attr</code> 提取 title/summary/published/authors/category；</li>
+    <li>正则匹配 <code>arxiv\.org/abs/(\d{4}\.\d{4,5})</code> 提取编号，构造 <code>arXiv:xxxx.xxxxx</code> 来源标识；</li>
+    <li>15 秒超时 + <code>raise_for_status</code>，网络异常由上层（ResearchAgent）捕获降级。</li>
+  </ul>
+
+  <h3>10.6 services/stream_buffer.py —— 预留的 LLM 流式缓冲</h3>
+  <p>设计为：LLM 分块输出 → <code>append()</code> 缓冲 → <code>should_flush()</code>（200 字符或 0.5s 双阈值）→ <code>flush()</code> 在 <code>ydoc.begin_transaction()</code> 内<strong>原子插入</strong> YText（带 <code>attributes={"author": agent_id}</code>），保证同房间要么看到完整段落要么看不到。当前未接入任何调用方，且 <code>ypy</code> 未安装时降级为仅内存缓冲——是"预留接入点"的标准写法。</p>
+</section>
+
+<!-- ================= S11 ================= -->
+<section id="s11">
+  <h2 class="sec">11. 前端入口与工具层</h2>
+
+  <h3>11.1 main.tsx + vite.config.ts</h3>
+  <ul>
+    <li><code>React.StrictMode</code> 包裹——开发模式会 <strong>double-mount 组件</strong>（挂载→卸载→再挂载），这是全前端多个防御逻辑的起因；</li>
+    <li>Vite 代理：<code>/api → http://localhost:8000</code>、<code>/ws → ws://localhost:8000</code>（<code>ws: true</code>），开发环境前端无需配 CORS 外的任何东西；</li>
+    <li>别名 <code>@ → src</code>、<code>@shared → ../shared</code>，共享类型单一来源。</li>
+  </ul>
+
+  <h3>11.2 lib/api.ts —— REST 客户端</h3>
+  <ul>
+    <li>统一 <code>request&lt;T&gt;</code> 封装：fetch + JSON 头 + 非 2xx 抛错 + 204 返回 undefined；</li>
+    <li>所有接口函数围绕它展开：<code>listDocuments/createDocument/updateDocument/exportDocument</code>、<code>triggerAgent/getAgentMessages</code>、<code>detectWatermark/detectDocumentWatermark/getWatermarkRecords</code>、<code>getProvenance/verifyProvenance</code>、<code>searchLiterature/getCitation</code>、<code>fetchBootstrap</code>；</li>
+    <li><strong>命名约定转换</strong>：后端 snake_case（<code>owner_id</code>）→ 共享类型 camelCase（<code>ownerId</code>），每个接口都有 <code>mapDocument</code> 之类的映射函数——类型层严格对齐 <code>shared/types.ts</code>。</li>
+  </ul>
+
+  <h3>11.3 lib/collab.ts —— 协同会话单例缓存（防踩坑核心）</h3>
+  <pre><code><span class="kw">const</span> sessions = <span class="kw">new</span> Map&lt;string, CollabSession&gt;();
+
+<span class="kw">export function</span> <span class="fn">getCollabSession</span>(docId: string): CollabSession {
+  <span class="kw">let</span> session = sessions.<span class="fn">get</span>(docId);
+  <span class="kw">if</span> (!session) {
+    <span class="kw">const</span> ydoc = <span class="kw">new</span> Y.Doc();
+    <span class="kw">const</span> provider = <span class="kw">new</span> WebsocketProvider(getWsUrl(), docId, ydoc, {
+      connect: <span class="kw">true</span>,
+      protocols: [<span class="st">'yjs'</span>],          <span class="cm">// 二进制协议，匹配后端</span>
+    });
+    session = { ydoc, provider, editor: <span class="kw">null</span>, loaded: <span class="kw">false</span> };
+    sessions.<span class="fn">set</span>(docId, session);
+  }
+  <span class="kw">return</span> session;
+}</code></pre>
+  <p><strong>为什么必须单例</strong>（文件注释写得很清楚）：</p>
+  <ul>
+    <li>StrictMode double-mount 若在组件内创建 provider，会建立<strong>重复 WebSocket 连接</strong>；</li>
+    <li>编辑器、Agent 面板、水印面板共享同一 Y.Doc，若各自建 provider，服务端把 A 的 awareness 转发给 B，B 应用后重新广播——<strong>意识状态无限回环、消息风暴</strong>；</li>
+    <li><code>disposeCollabSession</code> 由 App 切换文档时调用，防止连接泄漏；</li>
+    <li>HMR 时 <code>import.meta.hot.dispose</code> 统一销毁全部会话；开发环境暴露 <code>window.__collab</code> 调试钩子（含 Yjs fragment 结构只读诊断）。</li>
+  </ul>
+
+  <h3>11.4 lib/yjs.ts —— 作者标记与文本工具</h3>
+  <p>核心约定：<code>AUTHOR_AI='ai'</code>（蓝）、<code>AUTHOR_HUMAN='human'</code>（白）。重点函数：</p>
+  <ul>
+    <li><code>collectAuthors</code>：递归遍历 XmlFragment，收集 delta 中所有 author 值（AI/人类内容比例统计）；</li>
+    <li><code>getAuthorFromDelta</code>：兼容两种属性存储格式（扁平 <code>{author:'ai'}</code> 与 mark 对象 <code>{author:{author:'ai'}}</code>）——<strong>这是踩坑后的兼容处理</strong>；</li>
+    <li><code>appendText/appendAiText</code>：<strong>必须走 editor.commands.insertContentAt 通道</strong>而不是直接操作 fragment！文件注释解释了原因：ySyncPlugin 会对 fragment 的外部变更执行 synchronize 全量回写，直接插入的 XmlText 内容会被丢弃；且未注册为 PM mark 的 Yjs 属性（format/setAttribute）也会因属性映射失败触发同样问题。插入时用 <code>marks: [{type:'author', attrs:{author}}]</code>（mark 名是 'author' 而非 'ai'，否则报 "There is no mark type ai"）；</li>
+    <li><code>getPlainText</code>：按 paragraph 提取纯文本，段落间换行——供水印检测与落库持久化使用。</li>
+  </ul>
+</section>
+
+<!-- ================= S12 ================= -->
+<section id="s12">
+  <h2 class="sec">12. 前端核心：CollaborativeEditor.tsx</h2>
+  <p>这个文件把"协同编辑"拆成了 5 个相互配合的部分，逐一讲解：</p>
+
+  <h3>12.1 AuthorMark —— 作者 mark 注册（缺它文本会被清空）</h3>
+  <pre><code><span class="kw">const</span> AuthorMark = Mark.<span class="fn">create</span>({
+  name: <span class="st">'author'</span>,
+  <span class="fn">addAttributes</span>() { <span class="kw">return</span> { author: { default: <span class="st">'human'</span> } }; },
+  <span class="fn">parseHTML</span>() { <span class="kw">return</span> [{ tag: <span class="st">'span[data-author]'</span> }]; },
+  <span class="fn">renderHTML</span>({ HTMLAttributes }) { <span class="kw">return</span> [<span class="st">'span'</span>, <span class="fn">mergeAttributes</span>(HTMLAttributes)]; },
+});</code></pre>
+  <p><strong>为什么必须注册</strong>：mark 名即 Yjs 属性名（Tiptap Collaboration 约定）。若 Yjs 里存在未注册为 PM mark 的属性，ySyncPlugin 在 synchronize 全量重建时无法映射该属性，会导致<strong>文本内容被回写丢弃</strong>（实测踩坑：直接 format/setAttribute 后段落文本清空）。</p>
+
+  <h3>12.2 AuthorHighlight —— ProseMirror Decoration 视图层着色</h3>
+  <p>用 <code>Decoration.inline(from, to, {class})</code> 给"带 author 属性的文本区间"加背景色 class。核心是 <code>computeDecorations</code>：递归收集所有 XmlText → 读取 delta → 累计全局字符偏移（<code>globalOffset</code>）把 Yjs 区间换算为 PM 绝对 position。触发重算的条件：<code>tr.getMeta('external') === true || tr.docChanged</code>（外部 CRDT 同步事件或本地文档变化）。</p>
+  <div class="note">💡 注释明确：这是<strong>基于纯文本字符偏移的近似映射</strong>，纯段落场景精确；嵌套复杂块级结构时建议改用 <code>Y.relativePosition</code>（TODO）。这是"演示优先、复杂度让位"的又一例证。</div>
+
+  <h3>12.3 useEditor 配置 —— 扩展组装</h3>
+  <pre><code><span class="kw">const</span> editor = <span class="fn">useEditor</span>({
+  extensions: [
+    StarterKit.<span class="fn">configure</span>({ history: <span class="kw">false</span> }),   <span class="cm">// 协同场景撤销由 Y.UndoManager 管</span>
+    AuthorMark,
+    Collaboration.<span class="fn">configure</span>({ fragment: ydoc.<span class="fn">getXmlFragment</span>(<span class="st">'default'</span>) }),
+    CollaborationCursor.<span class="fn">configure</span>({ provider, user: { name: username, color: <span class="st">'#4f46e5'</span> } }),
+    AuthorHighlight.<span class="fn">configure</span>({ ydoc }),
+  ],
+  content: <span class="st">''</span>,
+});</code></pre>
+  <ul>
+    <li><strong>history: false</strong>：本地撤销栈与 CRDT 冲突，协同编辑的 undo/redo 必须走 <code>Y.UndoManager</code>（本 demo 未启用，是合理简化）；</li>
+    <li>Collaboration 的 fragment 必须是 <code>ydoc.getXmlFragment('default')</code>——与 lib/yjs.ts 的 <code>DEFAULT_Y_FRAGMENT</code> 一致。</li>
+  </ul>
+
+  <h3>12.4 三个 useEffect：连接监听 / 初始加载 / 持久化</h3>
+  <ul>
+    <li><strong>监听</strong>：<code>provider.on('status'/'sync')</code> 更新连接状态与作者统计；<code>provider.awareness.on('change')</code> 更新在线人数（<code>getStates().size</code>）；卸载时只摘监听器<strong>不销毁 provider</strong>（生命周期归 collab.ts 管）；</li>
+    <li><strong>editor 注册</strong>：把 editor 实例写回 session（Agent 面板要经它插入 AI 内容）；清理时判断"当前注册的仍是我"才置空，防 StrictMode 双实例误清；</li>
+    <li><strong>初始内容</strong>：仅当 fragment 为空（<code>length===0</code> 或只有一个空 paragraph）且 <code>!session.loaded</code> 时 <code>editor.commands.setContent(initialContent)</code>——防覆盖远端协同内容与 StrictMode 重复加载；</li>
+    <li><strong>持久化</strong>：<code>editor.on('update')</code> 触发，<strong>防抖 1.5s</strong> 后 <code>getPlainText(ydoc)</code> → <code>updateDocument(docId, {content, operatorId})</code> 落库（后端据此写哈希链日志）。空文档不落库。</li>
+  </ul>
+
+  <h3>12.5 本地输入标记为 human</h3>
+  <pre><code><span class="cm">// editor.on('transaction') 中：对无 author 属性的文本统一打标</span>
+<span class="kw">for</span> (<span class="kw">const</span> t <span class="kw">of</span> texts) {
+  <span class="kw">if</span> (t.length &gt; <span class="num">0</span> &amp;&amp; !t.<span class="fn">getAttribute</span>(<span class="st">'author'</span>)) {
+    t.<span class="fn">setAttribute</span>(<span class="st">'author'</span>, { author: defaultAuthor });  <span class="cm">// 默认 human</span>
+  }
+}</code></pre>
+  <p>用户直接输入的文本无 author 属性 → 默认标记为 human；AI 内容由 <code>appendAiText</code> 携带 author mark 写入。由此实现"AI 蓝、人类白"的完整区分。</p>
+</section>
+
+<!-- ================= S13 ================= -->
+<section id="s13">
+  <h2 class="sec">13. 前端功能面板（Agent / 水印 / 溯源 / 文献）</h2>
+
+  <h3>13.1 AgentPanel.tsx —— 左栏 Agent 交互</h3>
+  <ul>
+    <li>三个 Agent 卡片（🔬 Research / ✍️ Writer / 🧠 Supervisor），各有状态点（idle/running/completed/error）；</li>
+    <li><code>handleTrigger</code>：校验指令 → <code>triggerAgent(type, docId, prompt)</code> → 因后端同步执行，invoke 返回即完成 → <code>getAgentMessages(sessionId)</code> 拉取三个节点全部消息 → 全部置 COMPLETED → 找到 writer 消息，<strong>用 <code>appendAiText</code> 以 AI 身份写入文档</strong>（蓝色高亮）；</li>
+    <li>Supervisor 卡片按钮禁用（"质量总控 · 编排时自动运行"）——因为一次编排必然跑完整条链；</li>
+    <li>指令输入区 + 错误提示，<code>busy</code> 状态防止重复触发。</li>
+  </ul>
+
+  <h3>13.2 WatermarkPanel.tsx —— 右栏水印检测</h3>
+  <ul>
+    <li>"检测当前文档全文并留痕"：<code>detectDocumentWatermark(docId)</code>（后端持久化 + 溯源日志）；</li>
+    <li>"检测粘贴的文本"：<code>detectWatermark(text)</code>（不持久化）；</li>
+    <li>前端用 <code>performance.now()</code> 计时，展示置信度进度条（<code>confidence*100</code>%）、判定徽标（AI 生成=蓝 / 人类创作=绿）、绿名单命中字符数、耗时；</li>
+    <li>检测后自动 <code>refreshRecords()</code> 刷新历史记录列表（最近 5 条）。</li>
+  </ul>
+
+  <h3>13.3 ProvenancePanel.tsx —— 右栏溯源链</h3>
+  <ul>
+    <li><code>refresh</code> 用 <code>Promise.all</code> 并行拉取溯源链列表 + 完整性校验结果；</li>
+    <li>顶部徽标：<code>✓ 链条完整 · 未被篡改</code>（绿）或 <code>✗ 检测到篡改！</code>（红），附检查条数；</li>
+    <li>链条目按时间正序渲染成"链式"卡片（圆点 + 竖线连接 + 操作类型徽标 + 哈希前 20 位）；操作类型映射：insert 插入/delete 删除/replace 替换/ai_generate AI 生成/watermark_checked 水印检测。</li>
+  </ul>
+
+  <h3>13.4 LiteraturePanel.tsx —— 右栏文献检索</h3>
+  <ul>
+    <li>初始加载最近文献（空关键词查询）；</li>
+    <li>关键词检索 → 结果卡片（标题/作者/年份/来源/摘要/关键词）；</li>
+    <li>"插入引用"：<code>getCitation</code> 取 GB/T 7714 引文 → <code>appendText(editor, ydoc, '【引用】'+citation, 'human')</code> 以<strong>人类作者身份</strong>插入文档末尾（文献引用被视为人类行为）；</li>
+    <li>Enter 键快捷检索。</li>
+  </ul>
+</section>
+
+<!-- ================= S14 ================= -->
+<section id="s14">
+  <h2 class="sec">14. 核心机制专题：协同编辑原理与全部踩坑</h2>
+  <h3>14.1 CRDT 为什么能"无服务器收敛"</h3>
+  <p>Yjs 使用基于 <strong>Lamport 时钟 + 客户端唯一 ID 的偏序</strong>（Yjs 的 YATA 算法）：每个插入/删除操作都带 <code>(clientId, clock)</code>，冲突时按"先比较位置、再比较客户端 ID"的确定性规则合并。因此任意两端以任意顺序应用同一组操作，最终状态必然一致——这是协同编辑不需要中心裁决的理论基础。</p>
+  <h3>14.2 握手与同步流程（对照 README 验证要点）</h3>
+  <div class="flow">
+    <span class="box">客户端连 /ws/{doc_id}</span><span class="arrow">→</span><span class="box">服务端 accept(yjs)</span><span class="arrow">→</span><span class="box">客户端发 SYNC_STEP1(状态向量)</span><span class="arrow">→</span><span class="box">服务端回空 update (00 01 02 00 00)</span><span class="arrow">→</span><span class="box">synced</span>
+  </div>
+  <p>之后每次编辑：本地 Yjs 生成增量 update → <code>SYNC_UPDATE</code> 广播 → 服务端转发给同房间其他人（排除发送者）→ 对方 <code>applyUpdate</code> → <code>fragment.on('change')</code> 触发 → ProseMirror 同步渲染 + AuthorHighlight 重算。</p>
+  <h3>14.3 全部踩坑清单（README + 代码注释中的血泪史）</h3>
+  <table>
+    <tr><th>坑</th><th>现象</th><th>修复</th></tr>
+    <tr><td>空 update 编码</td><td>客户端 applyUpdate 抛 Unexpected end of array</td><td>空 update 必须为 <code>[0x00,0x00]</code></td></tr>
+    <tr><td>varUint8Array 长度前缀</td><td>协议解码错位</td><td><code>[varUint(len), bytes...]</code> 包装</td></tr>
+    <tr><td>awareness 回环</td><td>光标消息风暴、时钟无限递增</td><td>服务端转发排除发送者 + 前端单例 provider</td></tr>
+    <tr><td>StrictMode double-mount</td><td>重复 WebSocket 连接</td><td>模块级 Map 单例缓存</td></tr>
+    <tr><td>直接操作 fragment 被回写丢弃</td><td>AI 插入的内容消失</td><td>走 editor.commands 通道（PM transaction）</td></tr>
+    <tr><td>未注册 mark 的属性映射失败</td><td>setAttribute 后段落文本清空</td><td>注册 AuthorMark（mark 名=属性名）</td></tr>
+    <tr><td>mark 类型误用 'ai'</td><td>insertContentAt 抛 "no mark type ai"</td><td>用 <code>{type:'author', attrs:{author}}</code></td></tr>
+    <tr><td>历史撤销栈与 CRDT 冲突</td><td>撤销结果不一致</td><td>StarterKit history:false（留 TODO）</td></tr>
+  </table>
+</section>
+
+<!-- ================= S15 ================= -->
+<section id="s15">
+  <h2 class="sec">15. 核心机制专题：哈希链防篡改与并发锁（D1）</h2>
+  <h3>15.1 防篡改模型</h3>
+  <div class="hashdemo">entry0: prev=""  cur=sha256("" | op0_json | t0 | salt)<br>entry1: prev=cur0 cur=sha256(cur0 | op1_json | t1 | salt)<br>entry2: prev=cur1 cur=sha256(cur1 | op2_json | t2 | salt)  …</div>
+  <p>任何一条日志的 operation 被修改 → 该条 current_hash 重算不匹配（校验规则 ① 拦截）；即使攻击者同时重算自己的 current_hash，其后继条目的 prev_hash 也对不上（校验规则 ② 拦截）。链首 prev_hash 必须为空串，堵住"伪造链首"路径。<strong>UNIQUE 约束</strong>保证数据库层面不可能存在两条相同 current_hash。</p>
+  <h3>15.2 D1 并发缺陷复盘</h3>
+  <p>问题场景：两个 PATCH 同时到达 → 都读到链尾 cur1 → 同一秒内算出相同 cur2 → 第二条 INSERT 违反 UNIQUE → 500 + 链断。修复采用 <strong>doc_id 粒度的进程内 asyncio.Lock</strong>，把"读链尾→写 OpLog→commit"串行化。之所以不用数据库行锁（SELECT FOR UPDATE）或乐观锁版本号：SQLite 对并发写支持弱、且要保持跨数据库一致性——应用层锁最简单且对已存在的库无需迁移。</p>
+  <div class="warn">⚠️ 注意该锁是<strong>进程内</strong>的：多 uvicorn worker 或多实例部署时仍需改为数据库级锁（如 PostgreSQL advisory lock）——这是 README 未提及的部署注意点。</div>
+</section>
+
+<!-- ================= S16 ================= -->
+<section id="s16">
+  <h2 class="sec">16. 核心机制专题：Kirchenbauer 水印完整数学原理</h2>
+  <h3>16.1 嵌入端（embed）</h3>
+  <ol>
+    <li><strong>绿名单生成（PRF）</strong>：对前一个 token <code>t_{i-1}</code>，用伪随机函数 <code>seed = hash_key × t_{i-1}</code>（与 secret_key 的 SHA-256 摘要异或混合）作为 RNG 种子，对词表做 <strong>Fisher-Yates 洗牌（np.random.permutation）</strong>，取前 <code>gamma=50%</code> 为绿名单 <code>G(t_{i-1})</code>；</li>
+    <li><strong>logits 偏置</strong>：<code>logits_new[t] = logits[t] + delta</code>（仅当 t ∈ G），使绿名单 token 被采样的概率系统性升高；</li>
+    <li>生成方与检测方共享 <code>secret_key</code>，因此检测方能<strong>复现完全相同的绿名单</strong>（<code>test_paper_seeding_reproducible</code> 验证）。</li>
+  </ol>
+  <h3>16.2 检测端（detect）</h3>
+  <ol>
+    <li>对文本 token 化（当前为 Unicode 码点，词表 65536）后，逐对 <code>(prev, cur)</code> 检查 <code>cur ∈ G(prev)</code>，统计绿名单命中数 <code>green</code> 与总对数 <code>T</code>；</li>
+    <li>统计检验：<code>z = (green − gamma·T) / √(T·gamma·(1−gamma))</code>；若文本含水印，green 显著偏高 → z 大；</li>
+    <li><code>p = 1 − Φ(z)</code>（用 <code>erfc</code> 精确计算标准正态上尾概率，<strong>不依赖 scipy</strong>）；</li>
+    <li>判定：<code>z &gt; 4.0</code>（论文建议的 4-sigma）→ AI 生成；置信度 <code>1 − p</code>。</li>
+  </ol>
+  <h3>16.3 安全检测：ignore_repeated_bigrams</h3>
+  <p>默认开启：对<strong>唯一 bigram 去重计数</strong>——每个 <code>(prev,cur)</code> 对只计一次。防止文本中反复出现的固定词组（如论文里重复的机构名）虚高绿名单命中率，导致人类文本被误判。对应论文 "On the Reliability of Watermarks" 的修正。</p>
+  <h3>16.4 论文级忠实度</h3>
+  <p><code>hash_key=15485863</code>（论文官方默认素数）、种子公式、z 统计量、阈值 4.0 均与 <code>jwkirchenbauer/lm-watermarking</code>（Apache-2.0，许可证已声明）一致。测试 <code>test_zscore_formula_matches_paper</code> 直接断言公式；<code>test_watermarked_text_detected</code> 构造全绿名单采样文本验证检出。</p>
+  <div class="note">💡 字符级 tokenizer 是<strong>演示闭环</strong>：真实 LLM 场景需用与生成时相同的 tokenizer（tiktoken/transformers），否则检测失效——代码中 <code>_tokenize</code> 注释已标明接入点。</div>
+</section>
+
+<!-- ================= S17 ================= -->
+<section id="s17">
+  <h2 class="sec">17. 核心机制专题：AI/人类作者着色机制</h2>
+  <div class="flow">
+    <span class="box">Yjs 文本属性 author</span><span class="arrow">↔</span><span class="box">AuthorMark（PM mark）</span><span class="arrow">↔</span><span class="box">Decoration 视图层</span><span class="arrow">→</span><span class="box">.author-ai 蓝 / .author-human 白</span>
+  </div>
+  <ol>
+    <li><strong>数据层</strong>：Y.XmlText 的 <code>author</code> 属性携带作者身份（AI 插入带 'ai'，人类输入默认 'human'）；</li>
+    <li><strong>桥接层</strong>：y-prosemirror 在 PM 事务内把 mark ↔ Yjs 属性双向映射（mark 名必须叫 'author'）；</li>
+    <li><strong>视图层</strong>：AuthorHighlight 扩展监听 <code>fragment change</code>/<code>docChanged</code>，把 delta 区间换算为 PM position，挂 <code>Decoration.inline</code> 注入 <code>class=author-ai</code>；</li>
+    <li><strong>样式层</strong>：<code>.author-ai { background: rgba(59,130,246,.18) }</code>（半透明蓝），<code>.author-human</code> 透明；装饰层不修改文档内容，纯渲染。</li>
+  </ol>
+  <p>为什么用 Decoration 而不是直接改 DOM：Decoration 是 ProseMirror 的<strong>声明式视图层</strong>机制，随文档变化自动映射/重算，不会污染文档模型，且与协同同步天然兼容。</p>
+</section>
+
+<!-- ================= S18 ================= -->
+<section id="s18">
+  <h2 class="sec">18. 一次完整交互的调用链串讲</h2>
+  <h3>场景 A：打开系统 → 看到演示文档</h3>
+  <p><code>App.tsx mount</code> → <code>fetchBootstrap()</code>（GET /api/bootstrap）→ 得到 demo_user_id/demo_doc_id/documents → <code>getCollabSession(docId)</code> 创建 Y.Doc + WebsocketProvider（连接 /ws/{doc_id}）→ 编辑器 setContent(演示内容) → 握手成功后显示"已连接 · 1人在线"。</p>
+  <h3>场景 B：双标签页协同编辑</h3>
+  <p>页面 A 输入 → Yjs 本地更新 → SYNC_UPDATE 经 WS → 后端 handle_sync 转发（exclude 发送者）→ 页面 B applyUpdate → ProseMirror 渲染 + 光标移动经 AWARENESS 同步。同时 A 的 <code>update</code> 事件触发 1.5s 防抖 → PATCH /api/documents/{id}（content+operator_id）→ 后端写 OpLog（prev/current hash）→ 溯源链增长。</p>
+  <h3>场景 C：触发 Research Agent</h3>
+  <p>AgentPanel 填指令 → POST /api/agents/invoke → OrchestratorService.start_session → LangGraph（或降级图）执行 research→writer→supervisor → 消息存内存 → 返回 session_id → 前端 getAgentMessages 拉取三节点消息 → 将 writer 草稿 <code>appendAiText</code> 写入 Yjs（蓝色）→ 经 WS 广播给其他协作者。</p>
+  <h3>场景 D：水印检测并留痕 → 查看溯源链 → 导出</h3>
+  <p>WatermarkPanel "检测当前文档全文并留痕" → POST /api/watermark/documents/{id}/detect → 后端 WatermarkEngine.detect_watermark(全文) → 写 WatermarkRecord + 追加 watermark_checked 日志（oplog_append_lock 保护）→ 返回判定。→ ProvenancePanel 拉 /provenance + /provenance/verify 展示链条与校验结果。→ 顶栏导出 → GET /api/documents/{id}/export 返回含溯源校验状态的 Markdown → 前端 Blob 下载。</p>
+</section>
+
+<!-- ================= S19 ================= -->
+<section id="s19">
+  <h2 class="sec">19. 测试体系（29 个 pytest 用例）</h2>
+  <table>
+    <tr><th>文件</th><th>覆盖</th><th>代表用例</th></tr>
+    <tr><td>test_oplog_chain.py（5）</td><td>哈希链</td><td>确定性；完整链通过；篡改 operation/改写哈希/伪链首都失败</td></tr>
+    <tr><td>test_watermark_engine.py（9）</td><td>水印引擎</td><td>短文本不可检；人类文本不误判；全绿名单文本可检出（conf&gt;0.99）；种子可复现；z 公式与论文一致；embed 只改绿名单；采样偏向绿名单</td></tr>
+    <tr><td>test_academic_review.py</td><td>学术审查</td><td>篇幅/引用编号连续性/文献章节/条数匹配各规则</td></tr>
+    <tr><td>test_api_integration.py</td><td>API 集成</td><td>健康检查/bootstrap/文档 CRUD/水印留痕/溯源链校验全链路</td></tr>
+  </table>
+  <p>测试亮点：哈希链测试覆盖<strong>攻击者重算自己哈希</strong>的场景（说明理解了"即使局部重算也无法通过全局校验"）；水印测试构造"硬水印"文本验证强信号检出，同时验证人类文本 z&lt;4 不误判——正负样本齐全。docs/ 下的测试报告、测试样例（TC-01~25）、测试工作流（22 项检查表）构成完整验收体系。</p>
+</section>
+
+<!-- ================= S20 ================= -->
+<section id="s20">
+  <h2 class="sec">20. 已知限制与后续演进路线</h2>
+  <h3>20.1 已知限制（README 明确列出的"诚实声明"）</h3>
+  <ul>
+    <li><strong>服务端不持久化 Yjs 增量</strong>：刷新后从 documents.content 明文快照恢复（yjs-state 接口是骨架）；</li>
+    <li><strong>Agent 不调真实 LLM</strong>：Research 检索真实文献、Writer 返回模板、Supervisor 用规则引擎；同步执行无队列；</li>
+    <li><strong>水印用字符级 tokenizer</strong>：算法论文级忠实，但未接真实 LLM logits 与分词器；</li>
+    <li><strong>无认证</strong>：演示用户写死，AUTH 消息预留未启用。</li>
+  </ul>
+  <h3>20.2 演进路线（代码中的 TODO）</h3>
+  <table>
+    <tr><th>模块</th><th>TODO</th></tr>
+    <tr><td>documents.py</td><td>服务端 Yjs 状态持久化（documents.yjs_state 已有字段，需 Ypy 生成 update）</td></tr>
+    <tr><td>agent_orchestrator.py</td><td>接真实 LLM（_call_llm 预留 DeepSeek/通义千问/vLLM）；后台任务 + WS 流式推送；final_output 经 StreamBufferService 写 Yjs</td></tr>
+    <tr><td>stream_buffer.py</td><td>接入调用方；记录 OpLog ai_generate 条目</td></tr>
+    <tr><td>watermark_engine.py</td><td>接入 tiktoken/transformers；embed 水印接入 LLM 解码循环</td></tr>
+    <tr><td>websocket/document_ws.py</td><td>AUTH 鉴权启用；WS_MAX_CLIENTS_PER_DOC 限制</td></tr>
+    <tr><td>models.py / api</td><td>PermissionConfig 权限策略落地；JWT 认证</td></tr>
+  </table>
+  <div class="tip">✅ <strong>给开发者的建议</strong>：若要继续演进，优先做「服务端 Yjs 持久化 + 真实 LLM + tokenizer 级水印」这三件事——它们分别在协同可靠性、Agent 真实性、水印有效性上补齐系统的短板；同时注意 D1 锁的分布式化（多 worker 场景）。</div>
+</section>
+
+<p style="text-align:center; color:var(--text3); font-size:13px; margin-top:32px;">—— 智溯系统代码深度详解 · 生成于 2026-08-20 ——</p>
+</div>
+</body>
+</html>
