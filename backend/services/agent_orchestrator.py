@@ -449,6 +449,10 @@ class OrchestratorService:
     def __init__(self) -> None:
         self._graph = build_agent_graph()
         self._sessions: Dict[str, Dict[str, Any]] = {}
+        # 每个会话一把锁: 同一会话的并发 invoke 串行执行, 避免消息历史
+        # 竞态覆盖 (两个请求同时读到旧历史, 后完成者覆盖先完成者)
+        self._locks: Dict[str, asyncio.Lock] = {}
+        self._MAX_SESSIONS = 200  # 内存会话上限, 超出淘汰最旧
 
     async def start_session(
         self,
@@ -478,46 +482,53 @@ class OrchestratorService:
           - 此处为骨架: 直接同步执行图并更新会话状态
         """
         # 群聊会话复用: 继承既有消息历史 (节点以 *state.get("messages") 追加)
-        if session_id and session_id in self._sessions:
-            prev_messages = (
-                self._sessions[session_id].get("state", {}).get("messages", [])
-            )
-        else:
-            session_id = str(uuid.uuid4())
-            prev_messages = []
+        # 先解析会话键, 再用会话级锁串行化并发 invoke, 避免历史竞态覆盖
+        key = session_id if (session_id and session_id in self._sessions) else str(uuid.uuid4())
+        lock = self._locks.setdefault(key, asyncio.Lock())
+        async with lock:
+            if key in self._sessions:
+                prev_messages = self._sessions[key].get("state", {}).get("messages", [])
+            else:
+                prev_messages = []
 
-        # 构建初始 State
-        initial_state: State = {
-            "doc_id": doc_id,
-            "session_id": session_id,
-            "research_input": instruction,
-            "writing_task": instruction,
-            "messages": prev_messages,
-            "status": AgentStatus.RUNNING.value,
-            "metadata": {"model": "deepseek-v3"},  # TODO: 可配置
-        }
-
-        self._sessions[session_id] = {
-            "doc_id": doc_id,
-            "agent_type": agent_type,
-            "status": AgentStatus.RUNNING.value,
-            "state": initial_state,
-        }
-
-        # 骨架: 同步执行图 (生产环境改为后台任务 + WebSocket 推送)
-        final_state = await self._graph.ainvoke(initial_state)
-
-        self._sessions[session_id].update(
-            {
-                "status": final_state.get("status", AgentStatus.COMPLETED.value),
-                "state": final_state,
+            # 构建初始 State
+            initial_state: State = {
+                "doc_id": doc_id,
+                "session_id": key,
+                "research_input": instruction,
+                "writing_task": instruction,
+                "messages": prev_messages,
+                "status": AgentStatus.RUNNING.value,
+                "metadata": {"model": "deepseek-v3"},  # TODO: 可配置
             }
-        )
+
+            self._sessions[key] = {
+                "doc_id": doc_id,
+                "agent_type": agent_type,
+                "status": AgentStatus.RUNNING.value,
+                "state": initial_state,
+            }
+
+            # 骨架: 同步执行图 (生产环境改为后台任务 + WebSocket 推送)
+            final_state = await self._graph.ainvoke(initial_state)
+
+            self._sessions[key].update(
+                {
+                    "status": final_state.get("status", AgentStatus.COMPLETED.value),
+                    "state": final_state,
+                }
+            )
+
+            # 内存上限: 超出时淘汰最旧会话 (含其锁), 防止长时间运行内存膨胀
+            if len(self._sessions) > self._MAX_SESSIONS:
+                oldest = next(iter(self._sessions))
+                self._sessions.pop(oldest)
+                self._locks.pop(oldest, None)
 
         # TODO: 将 final_output 通过 StreamBufferService 写入 Yjs 文档
         #       并广播至 /ws/{doc_id} 的客户端
 
-        return session_id
+        return key
 
     def get_session(self, session_id: str) -> Optional[Dict[str, Any]]:
         """查询会话状态"""

@@ -141,3 +141,20 @@ def test_embed_adds_delta_to_green_list():
     out = engine.embed_watermark(logits, prev_token=prev, vocab_size=1000)
     assert np.allclose(out[mask], 2.0)
     assert np.allclose(out[~mask], 0.0)
+
+
+def test_demo_generate_no_surrogate_chars():
+    """
+    demo_generate 不得产生 Unicode 代理区字符 (U+D800-U+DFFF):
+    孤立代理无法 UTF-8 编码, 会令数据库写入 / JSON 序列化崩溃。
+    多轮生成, 覆盖词表抽样的代理区概率。
+    """
+    engine = WatermarkEngine()
+    for _ in range(5):
+        text = engine.demo_generate("水印", length=64)
+        # 全部字符均可 UTF-8 编码 (代理区字符 encode 会抛 UnicodeEncodeError)
+        text.encode("utf-8")
+        assert not any(0xD800 <= ord(c) <= 0xDFFF for c in text)
+    # 且水印仍可被检出 (屏蔽代理区不影响统计显著性)
+    res = engine.detect_watermark(text)
+    assert res["is_ai_generated"] is True

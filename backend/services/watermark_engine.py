@@ -299,6 +299,9 @@ class WatermarkEngine:
             watermarked = self.embed_watermark(
                 logits, prev_token=last, vocab_size=vocab_size
             )
+            # 屏蔽 Unicode 代理区 (U+D800-U+DFFF): 这些码点不是合法字符,
+            # chr() 产生孤立代理, 无法 UTF-8 编码 / 写入数据库 (会抛异常)
+            watermarked[0xD800 : 0xDFFF + 1] = -np.inf
             # softmax 采样
             probs = np.exp(watermarked - watermarked.max())
             probs /= probs.sum()

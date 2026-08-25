@@ -573,7 +573,23 @@ export function CollaborativeEditor({
     };
     editor.on('update', persist);
     return () => {
-      window.clearTimeout(timer);
+      // 卸载前冲刷未落库的编辑: 切换文档/组件卸载时, 防抖 timer 会被清除,
+      // 若不清空待保存内容, 最后 1.5s 内的修改会永久丢失。
+      if (timer) {
+        window.clearTimeout(timer);
+        try {
+          if (!editor.isDestroyed) {
+            const text = docToMarkdown(editor.state.doc).trim();
+            if (text) {
+              updateDocument(docId, { content: text, operatorId }).catch((e) =>
+                console.warn('[collab] 卸载前保存失败:', e)
+              );
+            }
+          }
+        } catch {
+          /* 编辑器已销毁, 跳过冲刷 */
+        }
+      }
       editor.off('update', persist);
     };
   }, [editor, docId, operatorId, ydoc]);
