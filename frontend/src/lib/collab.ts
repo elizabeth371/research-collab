@@ -25,8 +25,6 @@ export interface CollabSession {
   provider: WebsocketProvider;
   /** Tiptap 编辑器实例 (由 CollaborativeEditor 注册, Agent 面板经它插入内容) */
   editor: Editor | null;
-  /** 文档初始内容是否已加载 (防 StrictMode double-mount 重复 setContent) */
-  loaded: boolean;
 }
 
 const sessions = new Map<string, CollabSession>();
@@ -46,7 +44,7 @@ export function getCollabSession(docId: string): CollabSession {
       // 二进制协议 (匹配后端 y-websocket 实现)
       protocols: ['yjs'],
     });
-    session = { ydoc, provider, editor: null, loaded: false };
+    session = { ydoc, provider, editor: null };
     sessions.set(docId, session);
   }
   return session;

@@ -67,8 +67,8 @@ export function LiteraturePanel({ docId, ydoc }: LiteraturePanelProps) {
   return (
     <div className="space-y-4">
       <div>
-        <h3 className="text-sm font-semibold text-gray-800">📚 文献检索</h3>
-        <p className="text-[11px] text-gray-400 mt-0.5">
+        <h3 className="panel-title text-sm">文献检索</h3>
+        <p className="text-[11px] text-slate-400 mt-0.5">
           调研语料库 · 支持一键插入引文到文档
         </p>
       </div>
@@ -80,12 +80,12 @@ export function LiteraturePanel({ docId, ydoc }: LiteraturePanelProps) {
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
           placeholder="关键词, 如水印 / CRDT / 多Agent..."
-          className="flex-1 min-w-0 text-xs px-2.5 py-1.5 rounded-md border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-200"
+          className="flex-1 min-w-0 text-xs px-2.5 py-1.5 rounded-md border border-slate-300 focus:outline-none focus:ring-2 focus:ring-accent/30"
         />
         <button
           onClick={handleSearch}
           disabled={loading}
-          className="text-xs px-3 py-1.5 rounded-md bg-indigo-600 text-white hover:bg-indigo-500 disabled:opacity-40 transition-colors whitespace-nowrap"
+          className="text-xs px-3 py-1.5 rounded-md bg-ink text-white hover:bg-ink-hover disabled:opacity-40 transition-colors whitespace-nowrap"
         >
           {loading ? '检索中...' : '检索'}
         </button>
@@ -93,39 +93,39 @@ export function LiteraturePanel({ docId, ydoc }: LiteraturePanelProps) {
 
       {error && (
         <div className="text-[11px] text-red-500 bg-red-50 rounded px-2 py-1.5">
-          ⚠️ {error}
+          {error}
         </div>
       )}
 
       {/* 检索结果 */}
       <div className="space-y-2.5">
         {items.length === 0 && !loading && (
-          <p className="text-[11px] text-gray-400 text-center py-4">
+          <p className="text-[11px] text-slate-400 text-center py-4">
             暂无文献, 输入关键词检索
           </p>
         )}
         {items.map((item) => (
           <div
             key={item.id}
-            className="rounded-lg border border-gray-200 bg-gray-50/60 p-3 space-y-1.5"
+            className="rounded-lg border border-slate-200 bg-slate-50/60 p-3 space-y-1.5"
           >
-            <div className="text-xs font-medium text-gray-800 leading-snug">
+            <div className="text-xs font-medium text-slate-800 leading-snug">
               {item.title}
             </div>
-            <div className="text-[10px] text-gray-400">
+            <div className="text-[10px] text-slate-400">
               {item.authors} · {item.year || '未知年份'} · {item.source}
             </div>
-            <p className="text-[11px] text-gray-500 leading-relaxed line-clamp-3">
+            <p className="text-[11px] text-slate-500 leading-relaxed line-clamp-3">
               {item.abstract}
             </p>
             <div className="flex items-center justify-between">
-              <span className="text-[10px] text-gray-300 truncate max-w-[55%]">
+              <span className="text-[10px] text-slate-300 truncate max-w-[55%]">
                 {item.keywords}
               </span>
               <button
                 onClick={() => handleInsert(item)}
                 disabled={inserting === item.id}
-                className="text-[11px] px-2 py-1 rounded bg-white border border-indigo-200 text-indigo-600 hover:bg-indigo-50 disabled:opacity-40 transition-colors whitespace-nowrap"
+                className="text-[11px] px-2 py-1 rounded bg-white border border-accent/40 text-accent hover:bg-accent/5 disabled:opacity-40 transition-colors whitespace-nowrap"
               >
                 {inserting === item.id ? '插入中...' : '插入引用'}
               </button>

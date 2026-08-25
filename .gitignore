@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Node / 前端构建产物
+node_modules/
+frontend/dist/
+*.tsbuildinfo
+*.log
+
+# 数据库备份 (正式数据库 research_colab.db 需提交)
+backend/*.db.bak*
+backend/*.db.posttest*
+backend/*_posttest*
+
+# 编辑器 / 系统
+.vscode/
+.idea/
+.DS_Store

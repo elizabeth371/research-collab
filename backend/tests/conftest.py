@@ -23,3 +23,45 @@ def _init_backend():
 
     asyncio.run(_setup())
     yield
+    # 清理测试自产文档 (test_api_integration 以 "测试文档-" 前缀创建独立文档,
+    # 测试结束不删除, 若不清理会持续污染真实演示数据库)
+    _cleanup_test_docs()
+
+
+def _cleanup_test_docs():
+    """删除本次会话残留的 '测试文档-' 前缀文档及其关联记录"""
+    import asyncio
+
+    from database import async_session_factory
+
+    async def _cleanup():
+        from sqlalchemy import delete, select
+
+        import models  # noqa: F401
+
+        async with async_session_factory() as session:
+            result = await session.execute(
+                select(models.Document.id).where(
+                    models.Document.title.like("测试文档-%")
+                )
+            )
+            ids = [row[0] for row in result.fetchall()]
+            if not ids:
+                return
+            for table in (
+                models.OpLog,
+                models.WatermarkRecord,
+                models.DocumentCollaborator,
+                models.PermissionConfig,
+            ):
+                await session.execute(
+                    delete(table).where(table.doc_id.in_(ids))
+                    if table is not models.DocumentCollaborator
+                    else delete(table).where(table.document_id.in_(ids))
+                )
+            await session.execute(
+                delete(models.Document).where(models.Document.id.in_(ids))
+            )
+            await session.commit()
+
+    asyncio.run(_cleanup())

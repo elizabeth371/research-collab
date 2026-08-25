@@ -70,8 +70,8 @@ export function WatermarkPanel({ docId, getDocText }: WatermarkPanelProps) {
   return (
     <div className="space-y-4">
       <div>
-        <h3 className="text-sm font-semibold text-gray-800">🛡️ AIGC 水印检测</h3>
-        <p className="text-[11px] text-gray-400 mt-0.5">
+        <h3 className="panel-title text-sm">AIGC 水印检测</h3>
+        <p className="text-[11px] text-slate-400 mt-0.5">
           Kirchenbauer 绿名单算法 · 判定文本是否为 AI 生成
         </p>
       </div>
@@ -81,7 +81,7 @@ export function WatermarkPanel({ docId, getDocText }: WatermarkPanelProps) {
         <button
           onClick={() => runDetect(getDocText(), true)}
           disabled={loading}
-          className="w-full text-xs font-medium py-2 rounded-md bg-blue-600 text-white hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+          className="w-full text-xs font-medium py-2 rounded-md bg-ink text-white hover:bg-ink-hover disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
         >
           {loading ? '检测中...' : '检测当前文档全文并留痕'}
         </button>
@@ -94,12 +94,12 @@ export function WatermarkPanel({ docId, getDocText }: WatermarkPanelProps) {
           onChange={(e) => setCustomText(e.target.value)}
           placeholder="或粘贴待检测文本..."
           rows={3}
-          className="w-full text-xs p-2.5 rounded-md border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-200 resize-none"
+          className="w-full text-xs p-2.5 rounded-md border border-slate-300 focus:outline-none focus:ring-2 focus:ring-accent/30 resize-none"
         />
         <button
           onClick={() => runDetect(customText, false)}
           disabled={loading || !customText.trim()}
-          className="mt-1.5 w-full text-xs py-1.5 rounded-md border border-gray-300 text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+          className="mt-1.5 w-full text-xs py-1.5 rounded-md border border-slate-200 text-slate-600 hover:bg-slate-50 hover:border-slate-300 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
         >
           检测粘贴的文本
         </button>
@@ -107,15 +107,15 @@ export function WatermarkPanel({ docId, getDocText }: WatermarkPanelProps) {
 
       {error && (
         <div className="text-[11px] text-red-500 bg-red-50 rounded px-2 py-1.5">
-          ⚠️ {error}
+          {error}
         </div>
       )}
 
       {/* 检测结果 */}
       {result && (
-        <div className="rounded-lg border border-gray-200 bg-gray-50/60 p-3 space-y-3">
+        <div className="rounded-lg border border-slate-200 bg-slate-50/60 p-3 space-y-3">
           <div className="flex items-center justify-between">
-            <span className="text-xs text-gray-500">判定结果</span>
+            <span className="text-xs text-slate-500">判定结果</span>
             <span
               className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${
                 result.isAiGenerated
@@ -129,11 +129,11 @@ export function WatermarkPanel({ docId, getDocText }: WatermarkPanelProps) {
 
           {/* 置信度进度条 */}
           <div>
-            <div className="flex items-center justify-between text-[11px] text-gray-500 mb-1">
+            <div className="flex items-center justify-between text-[11px] text-slate-500 mb-1">
               <span>AI 置信度</span>
-              <span className="font-medium text-gray-700">{confidencePct}%</span>
+              <span className="font-medium text-slate-700">{confidencePct}%</span>
             </div>
-            <div className="h-2 rounded-full bg-gray-200 overflow-hidden">
+            <div className="h-2 rounded-full bg-slate-200 overflow-hidden">
               <div
                 className={`h-full rounded-full transition-all duration-500 ${
                   result.isAiGenerated ? 'bg-blue-500' : 'bg-green-500'
@@ -144,15 +144,15 @@ export function WatermarkPanel({ docId, getDocText }: WatermarkPanelProps) {
           </div>
 
           <div className="grid grid-cols-2 gap-2 text-[11px]">
-            <div className="bg-white rounded border border-gray-100 px-2 py-1.5">
-              <div className="text-gray-400">绿名单命中</div>
-              <div className="text-gray-700 font-medium">
+            <div className="bg-white rounded border border-slate-100 px-2 py-1.5">
+              <div className="text-slate-400">绿名单命中</div>
+              <div className="text-slate-700 font-medium">
                 {result.watermarkChars} 字符
               </div>
             </div>
-            <div className="bg-white rounded border border-gray-100 px-2 py-1.5">
-              <div className="text-gray-400">检测耗时</div>
-              <div className="text-gray-700 font-medium">
+            <div className="bg-white rounded border border-slate-100 px-2 py-1.5">
+              <div className="text-slate-400">检测耗时</div>
+              <div className="text-slate-700 font-medium">
                 {result.latencyMs} ms
               </div>
             </div>
@@ -162,11 +162,11 @@ export function WatermarkPanel({ docId, getDocText }: WatermarkPanelProps) {
 
       {/* 历史记录 */}
       <div>
-        <h4 className="text-xs font-semibold text-gray-600 mb-1.5">
+        <h4 className="text-xs font-semibold text-slate-600 mb-1.5">
           检测历史记录 ({records.length})
         </h4>
         {records.length === 0 ? (
-          <p className="text-[11px] text-gray-400">
+          <p className="text-[11px] text-slate-400">
             暂无记录 · 点击"检测当前文档全文并留痕"后自动生成
           </p>
         ) : (
@@ -174,9 +174,9 @@ export function WatermarkPanel({ docId, getDocText }: WatermarkPanelProps) {
             {records.slice(-5).reverse().map((r) => (
               <li
                 key={r.id}
-                className="text-[11px] bg-gray-50 border border-gray-100 rounded px-2.5 py-1.5 flex items-center justify-between"
+                className="text-[11px] bg-slate-50 border border-slate-100 rounded px-2.5 py-1.5 flex items-center justify-between"
               >
-                <span className="text-gray-600">
+                <span className="text-slate-600">
                   {new Date(r.created_at).toLocaleString('zh-CN', {
                     month: '2-digit',
                     day: '2-digit',
@@ -184,7 +184,7 @@ export function WatermarkPanel({ docId, getDocText }: WatermarkPanelProps) {
                     minute: '2-digit',
                   })}
                 </span>
-                <span className="text-gray-400">
+                <span className="text-slate-400">
                   {r.model_name} · γ={r.gamma}
                 </span>
               </li>

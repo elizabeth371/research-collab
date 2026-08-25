@@ -4,7 +4,7 @@ import { AgentPanel } from './components/Agent/AgentPanel';
 import { WatermarkPanel } from './components/Watermark/WatermarkPanel';
 import { ProvenancePanel } from './components/Provenance/ProvenancePanel';
 import { LiteraturePanel } from './components/Literature/LiteraturePanel';
-import { fetchBootstrap, createDocument, updateDocument, exportDocument } from './lib/api';
+import { fetchBootstrap, createDocument, updateDocument, exportDocument, getDocument } from './lib/api';
 import { disposeCollabSession, getCollabSession } from './lib/collab';
 import { getPlainText } from './lib/yjs';
 
@@ -74,6 +74,32 @@ export default function App() {
       disposeCollabSession(docIdRef.current);
       docIdRef.current = docId;
     }
+  }, [docId]);
+
+  // 切换文档时拉取最新内容并刷新列表条目:
+  // 编辑器保存后 docs 状态里的 content 仍是创建时的空快照, 而切走时
+  // CRDT 会话被销毁 (yjsState 未持久化), 若不刷新, 切回会拿到空内容。
+  // 同时也能同步其他客户端的远端编辑。
+  useEffect(() => {
+    if (!docId) return;
+    let cancelled = false;
+    getDocument(docId)
+      .then((doc) => {
+        if (cancelled) return;
+        setDocs((prev) =>
+          prev.map((d) =>
+            d.id === docId
+              ? { ...d, content: doc.content, updatedAt: doc.updatedAt }
+              : d
+          )
+        );
+      })
+      .catch(() => {
+        /* 拉取失败时保留列表快照, 编辑器仍可用 */
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [docId]);
 
   const getDocText = useCallback(() => (ydoc ? getPlainText(ydoc) : ''), [ydoc]);
@@ -158,10 +184,14 @@ export default function App() {
 
   if (!docId || !ydoc) {
     return (
-      <div className="h-screen w-screen flex items-center justify-center bg-gray-50">
+      <div className="h-screen w-screen flex items-center justify-center bg-slate-50">
         <div className="text-center space-y-3">
-          <div className="text-4xl animate-pulse">📝</div>
-          <div className="text-sm text-gray-500">
+          <svg viewBox="0 0 64 64" className="w-12 h-12 mx-auto rounded-xl shadow-sm animate-pulse" aria-hidden="true">
+            <rect width="64" height="64" rx="14" fill="#1F3A5F" />
+            <text x="32" y="42" fontFamily="'Songti SC','SimSun',serif" fontSize="34" fontWeight="600" fill="#FFFFFF" textAnchor="middle">智</text>
+            <rect x="16" y="50" width="32" height="3" rx="1.5" fill="#3B82F6" />
+          </svg>
+          <div className="text-sm text-slate-500">
             {backendOk === false
               ? '后端服务未启动 · 请先运行 uvicorn main:app --port 8000'
               : '正在连接智溯协同系统...'}
@@ -172,19 +202,21 @@ export default function App() {
   }
 
   return (
-    <div className="h-screen w-screen flex flex-col bg-gray-50 text-gray-900">
+    <div className="h-screen w-screen flex flex-col bg-slate-50 text-slate-900">
       {/* ======== 顶栏 ======== */}
-      <header className="h-14 flex items-center gap-4 px-5 bg-white border-b border-gray-200 shrink-0">
+      <header className="h-14 flex items-center gap-4 px-5 bg-white border-b border-slate-200 shrink-0">
         <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-blue-500 flex items-center justify-center text-white text-sm font-bold shadow-sm">
-            智溯
-          </div>
+          <svg viewBox="0 0 64 64" className="w-8 h-8 rounded-lg shadow-sm" aria-hidden="true">
+            <rect width="64" height="64" rx="14" fill="#1F3A5F" />
+            <text x="32" y="42" fontFamily="'Songti SC','SimSun',serif" fontSize="34" fontWeight="600" fill="#FFFFFF" textAnchor="middle">智</text>
+            <rect x="16" y="50" width="32" height="3" rx="1.5" fill="#3B82F6" />
+          </svg>
           <div className="leading-tight">
-            <h1 className="text-sm font-semibold text-gray-800">
+            <h1 className="font-serif text-sm font-semibold text-ink tracking-wide">
               智溯 · 多智能体科研协同编辑
             </h1>
-            <p className="text-[10px] text-gray-400">
-              Multi-Agent Collaboration & AIGC Provenance
+            <p className="text-[10px] text-slate-400 tracking-wider">
+              Multi-Agent Collaboration &amp; AIGC Provenance
             </p>
           </div>
         </div>
@@ -194,7 +226,7 @@ export default function App() {
           <select
             value={docId}
             onChange={(e) => setDocId(e.target.value)}
-            className="text-xs border border-gray-300 rounded-md px-2.5 py-1.5 bg-white max-w-56 focus:outline-none focus:ring-2 focus:ring-blue-200"
+            className="text-xs border border-slate-300 rounded-md px-2.5 py-1.5 bg-white text-slate-700 max-w-56 focus:outline-none focus:ring-2 focus:ring-accent/30"
           >
             {docs.map((d) => (
               <option key={d.id} value={d.id}>
@@ -206,7 +238,7 @@ export default function App() {
             onClick={handleCreateDoc}
             disabled={creating || !userId}
             title="新建协作文档"
-            className="text-xs px-3 py-1.5 rounded-md bg-indigo-600 text-white hover:bg-indigo-500 disabled:opacity-40 transition-colors whitespace-nowrap"
+            className="text-xs px-3 py-1.5 rounded-md bg-ink text-white hover:bg-ink-hover disabled:opacity-40 transition-colors whitespace-nowrap"
           >
             + 新建文档
           </button>
@@ -224,27 +256,27 @@ export default function App() {
             onClick={() => fileInputRef.current?.click()}
             disabled={uploading || !userId}
             title="上传本地 .md/.txt 文件为新文档（内容计入溯源链）"
-            className="text-xs px-3 py-1.5 rounded-md border border-gray-300 text-gray-600 hover:bg-gray-50 disabled:opacity-40 transition-colors whitespace-nowrap"
+            className="text-xs px-3 py-1.5 rounded-md border border-slate-200 text-slate-600 hover:bg-slate-50 hover:border-slate-300 disabled:opacity-40 transition-colors whitespace-nowrap"
           >
-            {uploading ? '上传中...' : '⬆️ 上传文档'}
+            {uploading ? '上传中...' : '上传文档'}
           </button>
           <button
             onClick={handleExportDoc}
             disabled={exporting || !currentDoc}
             title="导出为 Markdown (含溯源元数据)"
-            className="text-xs px-3 py-1.5 rounded-md border border-gray-300 text-gray-600 hover:bg-gray-50 disabled:opacity-40 transition-colors whitespace-nowrap"
+            className="text-xs px-3 py-1.5 rounded-md border border-slate-200 text-slate-600 hover:bg-slate-50 hover:border-slate-300 disabled:opacity-40 transition-colors whitespace-nowrap"
           >
-            {exporting ? '导出中...' : '⬇️ 导出 Markdown'}
+            {exporting ? '导出中...' : '导出 Markdown'}
           </button>
         </div>
 
         {/* 状态指示 */}
         <div className="ml-auto flex items-center gap-3">
-          <span className="text-[11px] text-gray-400 hidden lg:inline">
+          <span className="text-[11px] text-slate-400 hidden lg:inline">
             {currentDoc ? `最近更新 ${new Date(currentDoc.updatedAt).toLocaleString('zh-CN')}` : ''}
           </span>
-          <span className="text-xs text-gray-600 bg-gray-100 px-3 py-1 rounded-full">
-            👤 {username}
+          <span className="text-xs text-slate-600 bg-slate-100 px-3 py-1 rounded-full">
+            {username}
           </span>
         </div>
       </header>
@@ -268,13 +300,13 @@ export default function App() {
         </main>
 
         {/* 右: 水印检测 / 溯源链 */}
-        <aside className="w-80 shrink-0 flex flex-col bg-white border-l border-gray-200">
-          <div className="flex border-b border-gray-200">
+        <aside className="w-80 shrink-0 flex flex-col bg-white border-l border-slate-200">
+          <div className="flex border-b border-slate-200">
             {(
               [
-                ['watermark', '🛡️ 水印检测'],
-                ['provenance', '🔗 溯源链'],
-                ['literature', '📚 文献检索'],
+                ['watermark', '水印检测'],
+                ['provenance', '溯源链'],
+                ['literature', '文献检索'],
               ] as const
             ).map(([key, label]) => (
               <button
@@ -282,8 +314,8 @@ export default function App() {
                 onClick={() => setRightTab(key)}
                 className={`flex-1 text-xs py-3 font-medium transition-colors ${
                   rightTab === key
-                    ? 'text-indigo-600 border-b-2 border-indigo-500 bg-indigo-50/40'
-                    : 'text-gray-400 hover:text-gray-600'
+                    ? 'text-accent border-b-2 border-accent bg-accent/5'
+                    : 'text-slate-400 hover:text-slate-600'
                 }`}
               >
                 {label}

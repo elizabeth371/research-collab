@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
 import * as Y from 'yjs';
 import { WebsocketProvider } from 'y-websocket';
-import { EditorContent, useEditor } from '@tiptap/react';
+import { BubbleMenu, EditorContent, useEditor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Collaboration from '@tiptap/extension-collaboration';
 import CollaborationCursor from '@tiptap/extension-collaboration-cursor';
@@ -9,7 +10,8 @@ import { Extension, Mark, mergeAttributes } from '@tiptap/core';
 import { Plugin, PluginKey } from '@tiptap/pm/state';
 import { Decoration, DecorationSet } from '@tiptap/pm/view';
 import { getCollabSession } from '../../lib/collab';
-import { collectAuthors, getAuthorFromDelta, getPlainText } from '../../lib/yjs';
+import { collectAuthors, getAuthorFromDelta } from '../../lib/yjs';
+import { markdownToHtml, docToMarkdown } from '../../lib/markdown';
 import { updateDocument } from '../../lib/api';
 
 /**
@@ -67,6 +69,78 @@ const AUTHOR_CLASS: Record<string, string> = {
   ai: 'author-ai', // 蓝色背景
   human: 'author-human', // 白色背景
 };
+
+/**
+ * 工具栏按钮 (学术风: 文字符号 + 标题提示)
+ * onMouseDown preventDefault: 避免按钮抢焦点导致编辑器失焦
+ */
+function ToolbarBtn({
+  label,
+  title,
+  active,
+  onClick,
+  disabled,
+}: {
+  label: ReactNode;
+  title: string;
+  active?: boolean;
+  onClick: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      title={title}
+      onMouseDown={(e) => {
+        e.preventDefault();
+        if (!disabled) onClick();
+      }}
+      className={`w-7 h-7 rounded flex items-center justify-center text-[13px] leading-none transition-colors ${
+        active
+          ? 'bg-ink/10 text-ink font-semibold'
+          : 'text-slate-500 hover:bg-slate-100 hover:text-slate-700'
+      } ${disabled ? 'opacity-30 pointer-events-none' : ''}`}
+    >
+      {label}
+    </button>
+  );
+}
+
+/** 工具栏分隔线 */
+function ToolbarDivider() {
+  return <span className="w-px h-4 bg-slate-200 mx-0.5" />;
+}
+
+/** 浮动菜单按钮 (深色底, 用于选中文字的 BubbleMenu) */
+function BubbleBtn({
+  label,
+  title,
+  active,
+  onClick,
+}: {
+  label: ReactNode;
+  title: string;
+  active?: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      title={title}
+      onMouseDown={(e) => {
+        e.preventDefault();
+        onClick();
+      }}
+      className={`w-7 h-7 rounded flex items-center justify-center text-[13px] leading-none transition-colors ${
+        active
+          ? 'bg-white/25 text-white font-semibold'
+          : 'text-slate-300 hover:bg-white/15 hover:text-white'
+      }`}
+    >
+      {label}
+    </button>
+  );
+}
 
 /**
  * 作者高亮扩展
@@ -303,8 +377,12 @@ export function CollaborativeEditor({
   //  - editor 就绪且后端有内容;
   //  - fragment 仍为空 (Tiptap 初始化的空段落不算) 或未加载过,
   //    避免覆盖远端协同内容与 StrictMode 重复加载。
+  // NOTE: 不依赖 session.loaded 标志 —— 该标志在会话生命周期内不会复位,
+  //       同一页面内"切走再切回"会跳过加载导致编辑器空白。
+  //       fragment 是否为空本身即可防重: setContent 会把内容写入 CRDT,
+  //       StrictMode 二次挂载 / 切回时 fragment 已有内容, 直接以 CRDT 为准。
   useEffect(() => {
-    if (!editor || !initialContent || session.loaded) return;
+    if (!editor || !initialContent) return;
     const fragment = ydoc.getXmlFragment('default');
     const isEmpty =
       fragment.length === 0 ||
@@ -313,20 +391,23 @@ export function CollaborativeEditor({
         (fragment.get(0) as Y.XmlElement).length === 0);
     if (!isEmpty) return;
 
-    session.loaded = true;
-    // 经 PM 通道写入, 与 AI 插入同一路径 (ySyncPlugin 兼容)
-    editor.commands.setContent(initialContent);
-  }, [editor, initialContent, ydoc, session]);
+    // 后端内容为 Markdown 文本: 经 markdown-it 渲染为 HTML 后写入 PM,
+    // 与 AI 插入同一路径 (ySyncPlugin 兼容)。emitUpdate=false 使打开文档
+    // 不触发保存 (内容即后端原文, 无需回写, 避免每次打开多一条溯源日志)。
+    editor.commands.setContent(markdownToHtml(initialContent), false);
+  }, [editor, initialContent, ydoc]);
 
-  // ---- 编辑持久化: 内容变化防抖 1.5s 后保存到后端 (并写入溯源链日志) ----
+  // ---- 编辑持久化: 内容变化防抖 1.5s 后以 Markdown 保存到后端 (写入溯源链) ----
+  // 保存走 prosemirror-markdown 序列化, 标题/列表/引用等结构随内容持久化;
+  // 水印检测仍在 App.tsx 走纯文本 (getPlainText), 二者互不影响。
   useEffect(() => {
     if (!editor || !operatorId) return;
     let timer: number | undefined;
     const persist = () => {
       window.clearTimeout(timer);
       timer = window.setTimeout(() => {
-        const text = getPlainText(ydoc);
-        if (!text.trim()) return; // 空文档不落库
+        const text = docToMarkdown(editor.state.doc).trim();
+        if (!text) return; // 空文档不落库
         updateDocument(docId, { content: text, operatorId }).catch((e) =>
           console.warn('[collab] 文档保存失败:', e)
         );
@@ -381,34 +462,121 @@ export function CollaborativeEditor({
     <div
       className={`flex flex-col bg-white rounded-lg shadow-sm overflow-hidden ${className}`}
     >
-      {/* 工具栏 */}
-      <div className="flex items-center gap-2 px-4 py-2 border-b border-gray-200 bg-gray-50 text-xs">
+      {/* 格式化工具栏 (StarterKit 命令, 无新增扩展) */}
+      {editor && (
+        <div className="flex items-center flex-wrap gap-0.5 px-3 py-1.5 border-b border-slate-200 bg-slate-50">
+          <ToolbarBtn
+            label="H1"
+            title="一级标题"
+            active={editor.isActive('heading', { level: 1 })}
+            onClick={() =>
+              editor.chain().focus().toggleHeading({ level: 1 }).run()
+            }
+          />
+          <ToolbarBtn
+            label="H2"
+            title="二级标题"
+            active={editor.isActive('heading', { level: 2 })}
+            onClick={() =>
+              editor.chain().focus().toggleHeading({ level: 2 }).run()
+            }
+          />
+          <ToolbarBtn
+            label="H3"
+            title="三级标题"
+            active={editor.isActive('heading', { level: 3 })}
+            onClick={() =>
+              editor.chain().focus().toggleHeading({ level: 3 }).run()
+            }
+          />
+          <ToolbarDivider />
+          <ToolbarBtn
+            label={<span className="font-bold">B</span>}
+            title="加粗"
+            active={editor.isActive('bold')}
+            onClick={() => editor.chain().focus().toggleBold().run()}
+          />
+          <ToolbarBtn
+            label={<span className="italic">I</span>}
+            title="斜体"
+            active={editor.isActive('italic')}
+            onClick={() => editor.chain().focus().toggleItalic().run()}
+          />
+          <ToolbarBtn
+            label={<span className="line-through">S</span>}
+            title="删除线"
+            active={editor.isActive('strike')}
+            onClick={() => editor.chain().focus().toggleStrike().run()}
+          />
+          <ToolbarDivider />
+          <ToolbarBtn
+            label="&lt;/&gt;"
+            title="行内代码"
+            active={editor.isActive('code')}
+            onClick={() => editor.chain().focus().toggleCode().run()}
+          />
+          <ToolbarBtn
+            label="{}"
+            title="代码块"
+            active={editor.isActive('codeBlock')}
+            onClick={() => editor.chain().focus().toggleCodeBlock().run()}
+          />
+          <ToolbarDivider />
+          <ToolbarBtn
+            label="❝"
+            title="引用"
+            active={editor.isActive('blockquote')}
+            onClick={() => editor.chain().focus().toggleBlockquote().run()}
+          />
+          <ToolbarBtn
+            label="•"
+            title="无序列表"
+            active={editor.isActive('bulletList')}
+            onClick={() => editor.chain().focus().toggleBulletList().run()}
+          />
+          <ToolbarBtn
+            label="1."
+            title="有序列表"
+            active={editor.isActive('orderedList')}
+            onClick={() => editor.chain().focus().toggleOrderedList().run()}
+          />
+          <ToolbarDivider />
+          <ToolbarBtn
+            label="—"
+            title="分隔线"
+            onClick={() => editor.chain().focus().setHorizontalRule().run()}
+          />
+        </div>
+      )}
+
+      {/* 状态栏: 连接状态 / 在线人数 / AI·人类内容标识 */}
+      <div className="flex items-center gap-2 px-4 py-2 border-b border-slate-200 bg-slate-50 text-xs">
         <span
           className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full ${
             isConnected
-              ? 'bg-green-100 text-green-700'
+              ? 'bg-emerald-100 text-emerald-700'
               : 'bg-amber-100 text-amber-700'
           }`}
         >
           <span
             className={`w-1.5 h-1.5 rounded-full ${
-              isConnected ? 'bg-green-500' : 'bg-amber-500 animate-pulse'
+              isConnected ? 'bg-emerald-500' : 'bg-amber-500 animate-pulse'
             }`}
           />
           {isConnected ? '已连接' : '连接中...'}
         </span>
 
-        <span className="text-gray-400">·</span>
-        <span className="text-gray-500">{onlineCount} 人在线</span>
+        <span className="text-slate-400">·</span>
+        <span className="text-slate-500">{onlineCount} 人在线</span>
 
         <span className="ml-auto flex flex-wrap items-center gap-2">
           {/* AI / 人类内容标识 */}
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-blue-50 text-blue-600">
-            <span className="w-2 h-2 rounded-sm bg-blue-400 inline-block" />
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-accent/10 text-accent">
+            <span className="w-2 h-2 rounded-sm bg-accent inline-block" />
             AI 生成 {authors.has('ai') ? '✓' : ''}
           </span>
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-gray-100 text-gray-600">
-            <span className="w-2 h-2 rounded-sm bg-white border border-gray-300 inline-block" />
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-slate-100 text-slate-600">
+            <span className="w-2 h-2 rounded-sm bg-white border border-slate-300 inline-block" />
             人类输入 {authors.has('human') ? '✓' : ''}
           </span>
         </span>
@@ -416,6 +584,40 @@ export function CollaborativeEditor({
 
       {/* 编辑器主体 */}
       <div className="flex-1 overflow-y-auto">
+        {/* 选中文字浮动菜单 */}
+        {editor && (
+          <BubbleMenu
+            editor={editor}
+            tippyOptions={{ duration: 100, placement: 'top' }}
+          >
+            <div className="flex items-center gap-0.5 bg-slate-900 rounded-lg shadow-xl px-1.5 py-1">
+              <BubbleBtn
+                label={<span className="font-bold">B</span>}
+                title="加粗"
+                active={editor.isActive('bold')}
+                onClick={() => editor.chain().focus().toggleBold().run()}
+              />
+              <BubbleBtn
+                label={<span className="italic">I</span>}
+                title="斜体"
+                active={editor.isActive('italic')}
+                onClick={() => editor.chain().focus().toggleItalic().run()}
+              />
+              <BubbleBtn
+                label={<span className="line-through">S</span>}
+                title="删除线"
+                active={editor.isActive('strike')}
+                onClick={() => editor.chain().focus().toggleStrike().run()}
+              />
+              <BubbleBtn
+                label="&lt;/&gt;"
+                title="行内代码"
+                active={editor.isActive('code')}
+                onClick={() => editor.chain().focus().toggleCode().run()}
+              />
+            </div>
+          </BubbleMenu>
+        )}
         <EditorContent editor={editor} />
       </div>
     </div>

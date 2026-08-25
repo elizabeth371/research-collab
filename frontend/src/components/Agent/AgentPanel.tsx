@@ -108,13 +108,13 @@ export function AgentPanel({ docId, username, ydoc }: AgentPanelProps) {
   return (
     <aside className="w-80 shrink-0 flex flex-col bg-white border-r border-gray-200">
       {/* 面板标题 */}
-      <div className="px-5 py-4 border-b border-gray-200">
-        <h2 className="text-base font-semibold text-gray-800">🤖 Agent 面板</h2>
-        <p className="text-xs text-gray-400 mt-0.5">LangGraph 多智能体协同编排</p>
+      <div className="px-5 py-4 border-b border-slate-200">
+        <h2 className="panel-title text-base">Agent 面板</h2>
+        <p className="text-xs text-slate-400 mt-0.5">LangGraph 多智能体协同编排</p>
       </div>
 
       {/* Agent 状态卡片列表 */}
-      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
+      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3 slim-scroll">
         {(Object.keys(AGENT_META) as AgentType[]).map((type) => {
           const meta = AGENT_META[type];
           const status = statuses[type] ?? 'idle';
@@ -124,21 +124,23 @@ export function AgentPanel({ docId, username, ydoc }: AgentPanelProps) {
           return (
             <div
               key={type}
-              className={`border rounded-lg p-3 bg-gray-50/50 hover:bg-gray-50 transition-colors ${meta.color}`}
+              className={`border rounded-lg p-3 bg-slate-50/60 hover:bg-slate-50 transition-colors ${meta.color}`}
             >
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <span className="text-xl">{meta.emoji}</span>
+                  <span className="w-8 h-8 rounded-lg bg-white border border-slate-200 flex items-center justify-center text-base shadow-sm shrink-0">
+                    {meta.emoji}
+                  </span>
                   <div>
-                    <div className="text-sm font-medium text-gray-800">
+                    <div className="text-sm font-medium text-slate-800">
                       {meta.label}
                     </div>
-                    <div className="text-[11px] text-gray-400">
+                    <div className="text-[11px] text-slate-400">
                       {meta.description}
                     </div>
                   </div>
                 </div>
-                <span className="inline-flex items-center gap-1.5 text-[11px] text-gray-500">
+                <span className="inline-flex items-center gap-1.5 text-[11px] text-slate-500">
                   <span className={`w-2 h-2 rounded-full ${statusMeta.dot}`} />
                   {statusMeta.label}
                 </span>
@@ -149,7 +151,7 @@ export function AgentPanel({ docId, username, ydoc }: AgentPanelProps) {
                 <button
                   onClick={() => handleTrigger(type)}
                   disabled={busy !== null}
-                  className="mt-3 w-full text-xs font-medium py-1.5 rounded-md bg-gray-900 text-white hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  className="mt-3 w-full text-xs font-medium py-1.5 rounded-md bg-ink text-white hover:bg-ink-hover disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                 >
                   {busy === type
                     ? '运行中...'
@@ -160,7 +162,7 @@ export function AgentPanel({ docId, username, ydoc }: AgentPanelProps) {
               ) : (
                 <button
                   disabled
-                  className="mt-3 w-full text-xs py-1.5 rounded-md bg-gray-100 text-gray-400 cursor-not-allowed"
+                  className="mt-3 w-full text-xs py-1.5 rounded-md bg-slate-100 text-slate-400 cursor-not-allowed"
                 >
                   质量总控 · 编排时自动运行
                 </button>
@@ -168,11 +170,11 @@ export function AgentPanel({ docId, username, ydoc }: AgentPanelProps) {
 
               {/* 思考过程输出 */}
               {agentMsgs.length > 0 && (
-                <div className="mt-3 space-y-2 max-h-48 overflow-y-auto">
+                <div className="mt-3 space-y-2 max-h-48 overflow-y-auto slim-scroll">
                   {agentMsgs.map((msg) => (
                     <div
                       key={msg.id}
-                      className="text-[11px] leading-relaxed bg-white border border-gray-100 rounded p-2 text-gray-600"
+                      className="text-[11px] leading-relaxed bg-white border border-slate-100 rounded p-2 text-slate-600"
                     >
                       <p className="whitespace-pre-wrap break-words">{msg.content}</p>
                     </div>
@@ -185,10 +187,10 @@ export function AgentPanel({ docId, username, ydoc }: AgentPanelProps) {
       </div>
 
       {/* 指令输入区 */}
-      <div className="border-t border-gray-200 p-4">
+      <div className="border-t border-slate-200 p-4">
         {error && (
           <div className="mb-2 text-[11px] text-red-500 bg-red-50 rounded px-2 py-1">
-            ⚠️ {error}
+            {error}
           </div>
         )}
         <textarea
@@ -196,9 +198,9 @@ export function AgentPanel({ docId, username, ydoc }: AgentPanelProps) {
           onChange={(e) => setPrompt(e.target.value)}
           placeholder="输入给 Agent 的指令，如：检索关于水印算法的文献并总结…"
           rows={3}
-          className="w-full text-xs p-2.5 rounded-md border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-200 resize-none"
+          className="w-full text-xs p-2.5 rounded-md border border-slate-300 focus:outline-none focus:ring-2 focus:ring-accent/30 resize-none"
         />
-        <p className="mt-1 text-[10px] text-gray-400">
+        <p className="mt-1 text-[10px] text-slate-400">
           当前用户: {username} · AI 产出将自动以蓝色高亮写入文档
         </p>
       </div>

@@ -220,8 +220,13 @@ async def verify_provenance(
         .where(OpLog.doc_id == doc_id)
         .order_by(OpLog.created_at.asc())
     )
-    result = await db.execute(stmt)
-    logs = list(result.scalars().all())
+    try:
+        result = await db.execute(stmt)
+        logs = list(result.scalars().all())
+    except Exception:
+        # 日志的 operation 被外部破坏为非法 JSON 时, 查询反序列化即失败,
+        # 无法校验 -> 判定该链无效 (返回 200, 避免 500 崩溃)
+        return {"doc_id": str(doc_id), "valid": False, "checked": 0}
 
     if not logs:
         return {"doc_id": str(doc_id), "valid": True, "checked": 0}
@@ -230,6 +235,14 @@ async def verify_provenance(
     valid = True
     checked = 0
     for log in logs:
+        try:
+            operation = log.operation
+        except Exception:
+            # 单条日志的 operation 被外部破坏为非法 JSON, 无法参与校验,
+            # 直接判定该链无效 (返回 200, 避免 500 崩溃)
+            valid = False
+            break
+
         # 规则 1: prev_hash 必须与前一条的 current_hash 一致
         if log.prev_hash != prev_hash:
             valid = False
@@ -238,7 +251,7 @@ async def verify_provenance(
         # 规则 2: 重新计算 current_hash 并比对
         expected = OpLogHashChain.compute_hash(
             prev_hash=log.prev_hash,
-            operation=log.operation,
+            operation=operation,
             timestamp=log.created_at,
         )
         if log.current_hash != expected:

@@ -12,12 +12,18 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel, Field
-from sqlalchemy import func as _sql_func
+from sqlalchemy import delete, func as _sql_func
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_db
-from models import Document, OpLog
+from models import (
+    Document,
+    DocumentCollaborator,
+    OpLog,
+    PermissionConfig,
+    WatermarkRecord,
+)
 from services.oplog_chain import OpLogHashChain, oplog_append_lock
 
 router = APIRouter(prefix="/api/documents", tags=["documents"])
@@ -201,6 +207,19 @@ async def delete_document(
     doc = await db.get(Document, doc_id)
     if doc is None:
         raise HTTPException(status_code=404, detail="Document not found")
+    # 显式删除子表记录再删文档本体:
+    # SQLite 未启用 FK 级联, 且 ORM 对非空外键的默认"置空"策略会触发
+    # NOT NULL constraint failed (op_logs.doc_id), 导致删除 500。
+    await db.execute(delete(OpLog).where(OpLog.doc_id == doc_id))
+    await db.execute(delete(WatermarkRecord).where(WatermarkRecord.doc_id == doc_id))
+    await db.execute(
+        delete(DocumentCollaborator).where(
+            DocumentCollaborator.document_id == doc_id
+        )
+    )
+    await db.execute(
+        delete(PermissionConfig).where(PermissionConfig.doc_id == doc_id)
+    )
     await db.delete(doc)
     await db.commit()
 

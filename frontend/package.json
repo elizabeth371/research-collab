@@ -14,6 +14,8 @@
     "@tiptap/starter-kit": "^2.6.6",
     "@tiptap/extension-collaboration": "^2.6.6",
     "@tiptap/extension-collaboration-cursor": "^2.6.6",
+    "markdown-it": "^14.3.0",
+    "prosemirror-markdown": "^1.13.5",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "y-prosemirror": "^1.2.5",
@@ -21,6 +23,7 @@
     "y-websocket": "^2.0.4"
   },
   "devDependencies": {
+    "@types/markdown-it": "^14.1.2",
     "@types/node": "^20.14.15",
     "@types/react": "^18.3.5",
     "@types/react-dom": "^18.3.0",

@@ -10,7 +10,7 @@ import { getProvenance, verifyProvenance, type ProvenanceEntry } from '../../lib
  */
 
 const OP_TYPE_META: Record<string, { label: string; cls: string }> = {
-  insert: { label: '插入', cls: 'bg-gray-100 text-gray-600' },
+  insert: { label: '插入', cls: 'bg-slate-100 text-slate-600' },
   delete: { label: '删除', cls: 'bg-amber-50 text-amber-600' },
   replace: { label: '替换', cls: 'bg-purple-50 text-purple-600' },
   ai_generate: { label: 'AI 生成', cls: 'bg-blue-50 text-blue-600' },
@@ -52,23 +52,23 @@ export function ProvenancePanel({ docId }: ProvenancePanelProps) {
     <div className="space-y-4">
       <div className="flex items-start justify-between">
         <div>
-          <h3 className="text-sm font-semibold text-gray-800">🔗 版权溯源链</h3>
-          <p className="text-[11px] text-gray-400 mt-0.5">
+          <h3 className="panel-title text-sm">版权溯源链</h3>
+          <p className="text-[11px] text-slate-400 mt-0.5">
             操作日志哈希链 · 防篡改审计
           </p>
         </div>
         <button
           onClick={refresh}
           disabled={loading}
-          className="text-[11px] px-2 py-1 rounded border border-gray-300 text-gray-500 hover:bg-gray-50 disabled:opacity-40 transition-colors"
+          className="text-[11px] px-2 py-1 rounded border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-40 transition-colors"
         >
-          {loading ? '...' : '↻ 刷新'}
+          {loading ? '...' : '刷新'}
         </button>
       </div>
 
       {error && (
         <div className="text-[11px] text-red-500 bg-red-50 rounded px-2 py-1.5">
-          ⚠️ {error}
+          {error}
         </div>
       )}
 
@@ -90,11 +90,11 @@ export function ProvenancePanel({ docId }: ProvenancePanelProps) {
 
       {/* 链条目列表 */}
       {entries.length === 0 && !loading && !error && (
-        <div className="text-[11px] text-gray-400 text-center py-6 border border-dashed border-gray-200 rounded-lg">
+        <div className="text-[11px] text-slate-400 text-center py-6 border border-dashed border-slate-200 rounded-lg">
           暂无操作记录
           <br />
-          <span className="text-gray-300">
-            编辑文档或触发 Agent 后产生审计日志 (骨架阶段由后端写入)
+          <span className="text-slate-300">
+            编辑文档或触发 Agent 后产生审计日志
           </span>
         </div>
       )}
@@ -103,23 +103,23 @@ export function ProvenancePanel({ docId }: ProvenancePanelProps) {
         {entries.map((e, i) => {
           const meta = OP_TYPE_META[e.op_type] ?? {
             label: e.op_type,
-            cls: 'bg-gray-100 text-gray-600',
+            cls: 'bg-slate-100 text-slate-600',
           };
           return (
             <div
               key={e.id}
-              className="relative bg-white border border-gray-100 rounded-lg p-2.5 hover:border-gray-200 transition-colors"
+              className="relative bg-white border border-slate-100 rounded-lg p-2.5 hover:border-slate-200 transition-colors"
             >
               {/* 链节点连线 */}
               {i < entries.length - 1 && (
-                <span className="absolute left-6 -bottom-2 w-px h-2 bg-gray-200" />
+                <span className="absolute left-6 -bottom-2 w-px h-2 bg-slate-200" />
               )}
               <div className="flex items-center gap-2">
-                <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 shrink-0" />
+                <span className="w-1.5 h-1.5 rounded-full bg-accent shrink-0" />
                 <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${meta.cls}`}>
                   {meta.label}
                 </span>
-                <span className="ml-auto text-[10px] text-gray-300">
+                <span className="ml-auto text-[10px] text-slate-300">
                   {new Date(e.created_at).toLocaleString('zh-CN', {
                     month: '2-digit',
                     day: '2-digit',
@@ -128,7 +128,7 @@ export function ProvenancePanel({ docId }: ProvenancePanelProps) {
                   })}
                 </span>
               </div>
-              <div className="mt-1.5 font-mono text-[10px] text-gray-400 break-all">
+              <div className="mt-1.5 font-mono text-[10px] text-slate-400 break-all">
                 hash: {e.current_hash.slice(0, 20)}...
               </div>
             </div>
