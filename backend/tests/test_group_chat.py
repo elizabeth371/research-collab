@@ -39,14 +39,21 @@ async def _invoke(client: AsyncClient, doc_id: str, session_id: str | None, inst
 
 
 @pytest.mark.asyncio
-async def test_invoke_without_session_creates_new(client, demo_doc_id):
+async def test_invoke_without_session_creates_new(client, demo_doc_id, monkeypatch):
+    # 清空 API Key: 保证 Writer 走确定性规则模板 (真实 LLM 链路
+    # 由 test_watermark_resample 的 key-gated 端到端单独覆盖, 避免本套件
+    # 依赖网络且结果不确定)
+    monkeypatch.setattr("services.llm_client.settings.LLM_API_KEY", "")
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     s1 = await _invoke(client, demo_doc_id, None, "检索水印文献")
     s2 = await _invoke(client, demo_doc_id, None, "检索协同编辑文献")
     assert s1 != s2  # 未传 session_id 各自新建会话
 
 
 @pytest.mark.asyncio
-async def test_session_reuse_accumulates_history(client, demo_doc_id):
+async def test_session_reuse_accumulates_history(client, demo_doc_id, monkeypatch):
+    monkeypatch.setattr("services.llm_client.settings.LLM_API_KEY", "")
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     # 第一轮: 新建会话
     sid = await _invoke(client, demo_doc_id, None, "检索 AI 水印文献")
     msgs1 = (await client.get(f"/api/agents/sessions/{sid}/messages")).json()

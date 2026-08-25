@@ -77,6 +77,59 @@ async def detect_watermark(payload: DetectRequest) -> DetectResponse:
     )
 
 
+# ---------------------------------------------------------------------------
+# 真实 LLM + 水印生成演示 (需要配置 LLM_API_KEY, 失败返回 503)
+# ---------------------------------------------------------------------------
+class LLMGenerateRequest(BaseModel):
+    """真实 LLM 生成 + 字符级水印注入请求体"""
+
+    prompt: str = Field(..., min_length=1, max_length=2000, description="写作指令")
+    max_tokens: int = Field(default=400, ge=50, le=2000, description="生成长度上限")
+    delta: Optional[float] = Field(
+        default=None, ge=0.0, le=10.0, description="绿名单 logits 偏移 (默认取配置 2.0)"
+    )
+
+
+@router.post("/generate-llm")
+async def generate_llm_watermarked(payload: LLMGenerateRequest) -> dict:
+    """
+    端到端演示: 真实 LLM 生成 + 本地 logprobs 重采样注入字符级水印。
+
+    流程: DeepSeek (OpenAI 兼容) 逐位置返回 top-N (token, logprob)
+          -> WatermarkEngine.resample_with_watermark 按绿名单重新采样
+          -> detect_watermark 立即自检。
+    未配置 API Key 或调用失败返回 503 (调用方降级, 不产生半成品)。
+    """
+    from services.llm_client import llm_client
+    from services.watermark_engine import WatermarkEngine
+
+    if not llm_client.is_available():
+        raise HTTPException(
+            status_code=503, detail="未配置 LLM_API_KEY, 无法调用真实 LLM 生成"
+        )
+    engine = (
+        WatermarkEngine(delta=payload.delta) if payload.delta is not None else WatermarkEngine()
+    )
+    text = await engine.generate_watermarked(
+        llm_client,
+        [{"role": "user", "content": payload.prompt}],
+        max_tokens=payload.max_tokens,
+    )
+    if not text:
+        raise HTTPException(
+            status_code=503,
+            detail="LLM logprobs 生成失败 (网络/鉴权/空结果), 未产出含水印文本",
+        )
+    detect = engine.detect_watermark(text)
+    return {
+        "text": text,
+        "chars": len(text),
+        "detect": detect,
+        "engine": "deepseek-logprobs-resample",
+        "note": "文本越长 z 值越高; 建议 max_tokens>=300 (约 300 字) 以获得稳定检出 (z>4)",
+    }
+
+
 @router.post("/documents/{doc_id}/detect", response_model=DetectResponse)
 async def detect_document_watermark(
     doc_id: uuid.UUID,

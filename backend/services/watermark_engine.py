@@ -33,7 +33,7 @@ Kirchenbauer 水印引擎 (论文级实现)
 import hashlib
 import math
 import secrets
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
@@ -67,6 +67,9 @@ class WatermarkEngine:
         self.hash_key: int = hash_key if hash_key is not None else 15485863
         # 检测阈值: z-score > 4.0 判定为含水印 (论文建议的 5-sigma 近似)
         self.detection_threshold: float = 4.0
+        # 绿名单掩码缓存: 同一实例下 (prev_token, gamma, secret_key) 恒定,
+        # 避免对 65536 元素重复洗牌 —— 重采样每步要算多个候选, 缓存省 90%+ 时间
+        self._mask_cache: Dict[int, np.ndarray] = {}
 
     # ------------------------------------------------------------------
     # 核心: 论文式绿名单生成 (seeding = hash_key * prev_token)
@@ -92,7 +95,7 @@ class WatermarkEngine:
         self, prev_token: int, vocab_size: int
     ) -> np.ndarray:
         """
-        根据前一个 token 生成绿名单布尔掩码。
+        根据前一个 token 生成绿名单布尔掩码 (带实例级缓存)。
 
         与论文官方实现一致: 以种子 RNG 对词表做均匀洗牌 (randperm),
         取前 gamma 比例为绿名单。
@@ -104,11 +107,18 @@ class WatermarkEngine:
         Returns:
             np.ndarray[bool] 形状 (vocab_size,), True 表示属于绿名单
         """
+        cached = self._mask_cache.get(prev_token)
+        if cached is not None and len(cached) == vocab_size:
+            return cached
         rng = self._seed_rng(prev_token)
         permutation = rng.permutation(vocab_size)
         green_count = int(vocab_size * self.gamma)
         mask = np.zeros(vocab_size, dtype=bool)
         mask[permutation[:green_count]] = True
+        # 防御性上限: 缓存过大时整体清空 (正常中文文本远达不到)
+        if len(self._mask_cache) > 8192:
+            self._mask_cache.clear()
+        self._mask_cache[prev_token] = mask
         return mask
 
     # ------------------------------------------------------------------
@@ -310,6 +320,140 @@ class WatermarkEngine:
             last = next_id
 
         return "".join(generated)
+
+    # ------------------------------------------------------------------
+    # 闭源 LLM 适配: logprobs 重采样注入 (DeepSeek 等 API 无 logits 可改)
+    # ------------------------------------------------------------------
+    def _token_green_fraction(self, token: str, prev: int) -> float:
+        """
+        候选 token 的绿名单命中比例。
+
+        与 detect_watermark 的字符级 bigram 检查完全对齐:
+        将 token 展开为字符序列, 第 1 个字符以 running prev 为种子,
+        后续字符以 token 内前一个字符为种子, 逐对查绿名单掩码。
+        """
+        chars = list(token)
+        if not chars:
+            return 0.0
+        green = 0
+        p = prev
+        for ch in chars:
+            mask = self._green_list_mask(p, 65536)
+            if mask[ord(ch) % 65536]:
+                green += 1
+            p = ord(ch)
+        return green / len(chars)
+
+    def resample_with_watermark(
+        self,
+        candidates: List[List[Tuple[str, float]]],
+        *,
+        temperature: float = 1.0,
+        delta: Optional[float] = None,
+        prev: int = 0,
+        rng: Optional[np.random.Generator] = None,
+    ) -> str:
+        """
+        对 LLM 每位置 top-N 候选重新采样, 注入字符级 Kirchenbauer 水印。
+
+        原理 (closed-API 适配):
+        原始方案需要在生成时修改 logits, 闭源 API 拿不到。替代做法:
+        请求 DeepSeek 返回每位置 top-N (token, logprob), 在本地按候选
+        token 的「绿名单命中比例」加分: logit' = logprob + delta*ratio,
+        再做温度 softmax 采样 —— 与论文同思路 (有偏采样偏好绿名单),
+        检测端 (detect_watermark) 零改动即可检出。
+
+        Args:
+            candidates: 每位置候选 [(token, logprob), ...],
+                        由 llm_client.generate_with_logprobs 返回
+            temperature: 重采样温度 (>0; 越小越贴近模型原分布, 1.0 为论文默认)
+            delta:      绿名单偏移强度 (默认 self.delta; 实测真实 LLM
+                        需 ~4.0 才能在数百字文本上稳定 z>4)
+            prev:       running prev 字符码点 (文本首字符以 0 为种子)
+            rng:        随机源 (默认随机; 测试可注入固定种子复现)
+
+        Returns:
+            注入水印后的文本 (空 token / 代理区码点候选已被过滤)
+        """
+        if rng is None:
+            rng = np.random.default_rng()
+        wm_delta = delta if delta is not None else self.delta
+        out: List[str] = []
+        last = prev
+        for step_cands in candidates:
+            if not step_cands:
+                continue
+            # 过滤: 空 token / 含代理区码点 (U+D800-U+DFFF 非合法字符,
+            # 无法 UTF-8 编码 / 写入数据库)
+            filtered = [
+                (token, lp)
+                for token, lp in step_cands
+                if token and not any(0xD800 <= ord(ch) <= 0xDFFF for ch in token)
+            ]
+            if not filtered:
+                continue
+            # 水印注入核心: 按绿名单命中比例加分后温度 softmax 采样
+            weighted = np.array(
+                [
+                    lp + wm_delta * self._token_green_fraction(token, last)
+                    for token, lp in filtered
+                ],
+                dtype=np.float64,
+            )
+            w = weighted / max(temperature, 1e-9)
+            w = w - w.max()
+            probs = np.exp(w)
+            probs /= probs.sum()
+            idx = int(rng.choice(len(filtered), p=probs))
+            chosen = filtered[idx][0]
+            out.append(chosen)
+            last = ord(chosen[-1])
+        return "".join(out)
+
+    async def generate_watermarked(
+        self,
+        llm_client: Any,
+        messages: List[Dict[str, str]],
+        *,
+        temperature: float = 0.8,
+        max_tokens: int = 600,
+        top_logprobs: int = 20,
+        delta: Optional[float] = None,
+        rng: Optional[np.random.Generator] = None,
+    ) -> Optional[str]:
+        """
+        端到端: 真实 LLM 生成 + 字符级水印注入。
+
+        先请求 LLM 返回每位置 top-N logprobs, 再在本地按绿名单重新采样。
+        失败 (无 Key / 网络错误 / 空结果) 返回 None, 由调用方降级到
+        规则引擎 —— 不阻塞主流程。
+
+        Args:
+            llm_client: services.llm_client.LLMClient 实例 (延迟导入避免环)
+            messages:   OpenAI 兼容消息组 (与 write_draft 同构)
+            temperature: 生成温度 (影响候选分布)
+            max_tokens:  生成长度上限 (按 token 计, 中文约 0.6-1 字/token;
+                         实测 300-600 token 才能在 delta=4 下稳定 z>4)
+            top_logprobs: 每位置候选数 (1-20)
+            delta:      绿名单偏移强度 (默认 settings.WATERMARK_LLM_DELTA=4.0)
+            rng:        重采样随机源 (默认随机; 测试可注入固定种子复现)
+
+        Returns:
+            注入水印后的文本 (去首尾空白), 失败返回 None
+        """
+        candidates = await llm_client.generate_with_logprobs(
+            messages,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            top_logprobs=top_logprobs,
+        )
+        if not candidates:
+            return None
+        wm_delta = delta if delta is not None else settings.WATERMARK_LLM_DELTA
+        text = self.resample_with_watermark(
+            candidates, temperature=1.0, delta=wm_delta, rng=rng
+        ).strip()
+        return text or None
 
 
 # 工具函数: 随机生成密钥 (用于创建新文档水印)

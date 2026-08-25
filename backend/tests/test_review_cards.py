@@ -129,7 +129,11 @@ async def _create_doc(client: AsyncClient, content: str = "") -> str:
 
 
 @pytest.mark.asyncio
-async def test_api_polish(client):
+async def test_api_polish(client, monkeypatch):
+    # 清空 API Key: 本测试断言规则引擎的确定性输出,
+    # 避免真实 LLM 已配置时走网络 (结果不确定且产生调用费用)
+    monkeypatch.setattr("services.llm_client.settings.LLM_API_KEY", "")
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     doc_id = await _create_doc(client)
     resp = await client.post(
         "/api/agents/polish", json={"doc_id": doc_id, "text": "我们做了实验。"}

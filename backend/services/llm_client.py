@@ -17,7 +17,7 @@ import json
 import logging
 import os
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -178,12 +178,11 @@ class LLMClient:
             },
         }
 
-    async def write_draft(
-        self, writing_task: str, research_output: str
-    ) -> Optional[str]:
+    def draft_messages(self, writing_task: str, research_output: str) -> List[Dict[str, str]]:
         """
-        WriterAgent 草稿生成: 基于写作任务 + 研究背景撰写学术章节草稿。
-        无 Key / 调用失败返回 None (回退到模拟草稿模板)。
+        WriterAgent 草稿的 prompt 消息组 (system + user)。
+        抽成独立方法以便普通生成 (write_draft) 与水印生成
+        (generate_with_logprobs) 复用同一份 prompt, 保证结果可比。
         """
         task = (writing_task or "").strip() or "围绕研究背景撰写论文引言与相关工作章节"
         research = (research_output or "").strip()[:2500]
@@ -195,14 +194,80 @@ class LLMClient:
             "3. 篇幅 300-600 字，直接输出正文，不要代码块。\n"
             f"\n【研究背景】\n{research}\n\n【写作任务】\n{task}"
         )
+        return [
+            {"role": "system", "content": "你是一位严谨的中文学术论文写作者。"},
+            {"role": "user", "content": prompt},
+        ]
+
+    async def write_draft(
+        self, writing_task: str, research_output: str
+    ) -> Optional[str]:
+        """
+        WriterAgent 草稿生成: 基于写作任务 + 研究背景撰写学术章节草稿。
+        无 Key / 调用失败返回 None (回退到模拟草稿模板)。
+        """
         return await self.chat(
-            [
-                {"role": "system", "content": "你是一位严谨的中文学术论文写作者。"},
-                {"role": "user", "content": prompt},
-            ],
+            self.draft_messages(writing_task, research_output),
             temperature=0.7,
             max_tokens=1500,
         )
+
+    # ------------------------------------------------------------------
+    # 水印专用: 返回每位置 top-N 候选 (token, logprob)
+    # ------------------------------------------------------------------
+    async def generate_with_logprobs(
+        self,
+        messages: List[Dict[str, str]],
+        *,
+        temperature: float = 0.8,
+        max_tokens: int = 600,
+        top_logprobs: int = 20,
+    ) -> Optional[List[List[Tuple[str, float]]]]:
+        """
+        请求 LLM 逐位置返回 top-N 候选 token 及其 logprob。
+
+        闭源 API (DeepSeek) 拿不到 logits, 但支持 logprobs+top_logprobs:
+        返回每生成位置的前 N 个候选。水印引擎据此在本地按绿名单
+        重新采样 (见 watermark_engine.resample_with_watermark)。
+
+        Args:
+            messages:     OpenAI 兼容消息组
+            temperature:  生成温度 (影响候选分布)
+            max_tokens:   生成长度上限 (水印文本按字符计, 建议 300-600)
+            top_logprobs: 每位置返回的候选数 (1-20)
+
+        Returns:
+            List[位置 -> List[(token, logprob), ...]]
+            失败 (无 Key / 网络 / 空结果) 返回 None。
+        """
+        client = self._get_client()
+        if client is None:
+            logger.info("[LLM] 未配置 API Key, 无法生成 logprobs 水印")
+            return None
+        try:
+            resp = await client.chat.completions.create(
+                model=settings.LLM_MODEL,
+                messages=messages,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                logprobs=True,
+                top_logprobs=max(1, min(int(top_logprobs), 20)),
+            )
+            lp = resp.choices[0].logprobs
+            if not lp or not lp.content:
+                logger.warning("[LLM] 响应缺少 logprobs.content")
+                return None
+            candidates: List[List[Tuple[str, float]]] = []
+            for item in lp.content:
+                if not item.top_logprobs:
+                    continue
+                candidates.append(
+                    [(t.token, float(t.logprob)) for t in item.top_logprobs]
+                )
+            return candidates or None
+        except Exception as e:  # 网络/超时/鉴权失败 -> 返回 None, 不阻断主流程
+            logger.warning("[LLM] logprobs 调用失败 (%s: %s)", type(e).__name__, e)
+            return None
 
 
 # 模块级单例 (与 orchestrator / api 共享)

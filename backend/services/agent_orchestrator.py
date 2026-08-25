@@ -321,11 +321,21 @@ async def writer_agent_node(state: State) -> Dict[str, Any]:
         }
 
     # ---- 1. LLM 真实生成 (可插拔, 无 key 自动跳过) ----
+    # 生成路径优先走「logprobs 重采样水印」: 请求 DeepSeek 返回每位置
+    # top-N 候选, 本地按绿名单重新采样 —— 产出草稿天然带可检测水印。
     try:
         from services.llm_client import llm_client
+        from services.watermark_engine import WatermarkEngine
 
         if llm_client.is_available():
-            draft = await llm_client.write_draft(task, research)
+            wm = WatermarkEngine()
+            messages = llm_client.draft_messages(task, research)
+            watermarked = await wm.generate_watermarked(llm_client, messages)
+            if watermarked:
+                draft = watermarked
+            else:
+                # 水印链路失败 (如 logprobs 被拒) -> 退回普通 LLM 生成
+                draft = await llm_client.write_draft(task, research)
     except Exception as e:  # pragma: no cover - LLM 失败不阻断流程
         print(f"[WriterAgent] LLM 草稿生成失败 ({type(e).__name__}: {e}), 降级模板")
 
@@ -343,7 +353,12 @@ async def writer_agent_node(state: State) -> Dict[str, Any]:
     return {
         "draft": draft,
         "status": AgentStatus.COMPLETED.value,
-        "metadata": {**(state.get("metadata") or {}), "writer_engine": engine},
+        "metadata": {
+            **(state.get("metadata") or {}),
+            "writer_engine": engine,
+            # 水印溯源标记: llm 路径默认已注入字符级水印 (logprobs 重采样)
+            "writer_watermarked": engine == "llm",
+        },
         "messages": [
             *state.get("messages", []),
             {

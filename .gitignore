@@ -18,3 +18,7 @@ backend/*_posttest*
 .vscode/
 .idea/
 .DS_Store
+
+# 密钥文件 (禁止提交)
+.env
+*.env
