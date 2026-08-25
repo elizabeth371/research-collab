@@ -10,9 +10,9 @@ import { Extension, Mark, mergeAttributes } from '@tiptap/core';
 import { Plugin, PluginKey } from '@tiptap/pm/state';
 import { Decoration, DecorationSet } from '@tiptap/pm/view';
 import { getCollabSession } from '../../lib/collab';
-import { collectAuthors, getAuthorFromDelta } from '../../lib/yjs';
+import { collectAuthors, AUTHOR_AI } from '../../lib/yjs';
 import { markdownToHtml, docToMarkdown } from '../../lib/markdown';
-import { updateDocument, getComments, addComment, deleteComment } from '../../lib/api';
+import { updateDocument, getComments, addComment, deleteComment, polishText } from '../../lib/api';
 import type { CommentItem } from '../../lib/api';
 
 /**
@@ -146,99 +146,54 @@ function BubbleBtn({
 /**
  * 作者高亮扩展
  * -------------
- * 通过 ProseMirror Decoration 将 Yjs 文本中带 `author` 属性的区间
- * 渲染为不同背景色。decorations 不修改文档内容, 是纯粹的视图层。
+ * 通过 ProseMirror Decoration 将带 `author` mark 的文本区间渲染为
+ * 不同背景色 (AI=蓝色, 人类=白色)。decorations 不修改文档内容,
+ * 是纯粹的视图层。
  *
  * 实现要点:
- *  - 监听 `fragment.on('change')` 与 `docChanged`, 重算 decorations
- *  - 将 Y.XmlText 的 delta 区间 (带 author 属性) 换算为
- *    ProseMirror 绝对 position (基于纯文本字符偏移的近似映射)
- *
- * NOTE: 近似映射在纯段落文本场景下精确; 嵌套复杂块级结构时,
- *       建议用 Y.relativePosition 做精确双向映射 (TODO)。
+ *  - 直接遍历 PM 文档中的 author mark (不依赖 Yjs delta): mark 由
+ *    insertContentAt (润色/AI 写入) 或 y-prosemirror 外部同步
+ *    (attributesToMarks) 写入 PM 文档, 事务一应用即可见, 时序确定。
+ *  - 最初实现改为从 Yjs fragment 的 delta 属性反推 position, 但因
+ *    y-prosemirror 将 PM 变更写回 Yjs 发生在 view.update (事务之后),
+ *    且 observeDeep 会跳过自身事务源的更新, 装饰重算永远赶不上
+ *    Yjs 属性就绪的时机, 导致任何 author 文本都不出高亮。
  */
 const AuthorHighlight = Extension.create({
   name: 'authorHighlight',
 
   addStorage() {
     return {
-      fragment: null as Y.XmlFragment | null,
       lastDecorations: DecorationSet.empty,
-      version: 0,
     };
-  },
-
-  onCreate() {
-    const { ydoc } = this.options as unknown as {
-      ydoc: Y.Doc;
-    };
-    if (ydoc) {
-      this.storage.fragment = ydoc.getXmlFragment('default');
-    }
   },
 
   addProseMirrorPlugins() {
     const ext = this;
     const pluginKey = new PluginKey('authorHighlight');
 
-    const computeDecorations = (
-      doc: any,
-      fragment: Y.XmlFragment | null
-    ): DecorationSet => {
-      if (!fragment) return DecorationSet.empty;
-
-      /** 获取嵌套 XML 结构中的所有 XmlText */
-      const texts: Y.XmlText[] = [];
-      const walk = (node: Y.XmlElement | Y.XmlText | Y.XmlFragment): void => {
-        if (node instanceof Y.XmlText) {
-          texts.push(node);
-        } else if (node instanceof Y.XmlElement) {
-          node.forEach(walk);
-        } else {
-          node.forEach(walk);
-        }
-      };
-      walk(fragment);
-
+    const computeDecorations = (doc: any): DecorationSet => {
       const decorations: Decoration[] = [];
-      // 从文档起点累计字符偏移
-      let globalOffset = 0;
-      const trailingOffset = (text: Y.XmlText): number => {
-        const len = text.toString().length;
-        return len + (len > 0 && text.toString().endsWith('\n') ? 1 : 0);
-      };
-
-      for (const text of texts) {
-        const delta = text.toDelta() as Array<{
-          insert: string;
-          attributes?: { author?: unknown };
-        }>;
-
-        for (const item of delta) {
-          const author = getAuthorFromDelta(item);
-          if (!author) {
-            continue;
-          }
-          const cls = AUTHOR_CLASS[author] ?? AUTHOR_CLASS.human;
-          if (!cls) continue;
-
-          const length = item.insert.length;
-          // 近似 position 映射: 忽略换行符占位偏差 (纯文本段落可接受)
-          const from = globalOffset;
-          const to = globalOffset + length;
-
-          decorations.push(
-            Decoration.inline(from, to, {
-              class: cls,
-              'data-author': author,
-            })
+      doc.descendants((node: any, pos: number) => {
+        if (node.isText) {
+          const authorMark = node.marks.find(
+            (m: any) => m.type.name === 'author'
           );
-          globalOffset += length;
+          if (authorMark) {
+            const author = authorMark.attrs.author as string;
+            const cls = AUTHOR_CLASS[author] ?? AUTHOR_CLASS.human;
+            if (cls) {
+              decorations.push(
+                Decoration.inline(pos, pos + node.nodeSize, {
+                  class: cls,
+                  'data-author': author,
+                })
+              );
+            }
+          }
         }
-
-        globalOffset += trailingOffset(text);
-      }
-
+        return true;
+      });
       return DecorationSet.create(doc, decorations);
     };
 
@@ -247,20 +202,14 @@ const AuthorHighlight = Extension.create({
         key: pluginKey,
         state: {
           init(_config, state) {
-            return computeDecorations(
-              state.doc,
-              ext.storage.fragment as Y.XmlFragment | null
-            );
+            return computeDecorations(state.doc);
           },
           apply(tr, oldDecos, _oldState, newState) {
             const synced =
               tr.getMeta('external') === true || tr.docChanged;
             if (synced) {
               // 有外部 CRDT 同步事件或本地文档变化时重算
-              const fresh = computeDecorations(
-                newState.doc,
-                ext.storage.fragment as Y.XmlFragment | null
-              );
+              const fresh = computeDecorations(newState.doc);
               ext.storage.lastDecorations = fresh;
               return fresh;
             }
@@ -663,6 +612,59 @@ export function CollaborativeEditor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editor, ydoc, defaultAuthor]);
 
+  // ---- 写稿人润色: 选中文字 / 光标所在段落 -> 学术化润色替换 ----
+  const [polishNotice, setPolishNotice] = useState<string | null>(null);
+  const polishTimer = useRef<number | undefined>(undefined);
+  const showPolishNotice = useCallback((msg: string) => {
+    setPolishNotice(msg);
+    window.clearTimeout(polishTimer.current);
+    polishTimer.current = window.setTimeout(() => setPolishNotice(null), 4500);
+  }, []);
+
+  const handlePolish = useCallback(async () => {
+    if (!editor) return;
+    const { from, to } = editor.state.selection;
+    // 选区起点所在顶层块的内容范围 (无选区时即光标所在段)
+    const $from = editor.state.doc.resolve(from);
+    const blockStart = $from.start($from.depth);
+    const blockEnd = $from.end($from.depth);
+    const selectedText = editor.state.doc.textBetween(from, to, '\n');
+    // 跨块选区退化为润色起点所在段, 避免润色替换把多块合并为一块
+    const singleBlock = !selectedText.includes('\n');
+    const hasSelection = from !== to;
+    const target = singleBlock && hasSelection
+      ? selectedText
+      : editor.state.doc.textBetween(blockStart, blockEnd, '\n');
+    const range = singleBlock && hasSelection
+      ? { from, to }
+      : { from: blockStart, to: blockEnd };
+    if (!target.trim()) return;
+
+    try {
+      const result = await polishText(docId, target.trim());
+      if (result.stats.changeCount === 0) {
+        showPolishNotice('该文本已符合学术规范，无需润色');
+        return;
+      }
+      // 润色结果以 AI 作者身份替换目标范围 (蓝色高亮), 走编辑器事务,
+      // 持久化经既有防抖 PATCH, 溯源链自动记录一次内容变更。
+      editor.commands.insertContentAt(
+        range,
+        {
+          type: 'text',
+          text: result.polished,
+          // 与 appendText 相同的 author mark 结构 (mark 名 'author')
+          marks: [{ type: 'author', attrs: { author: AUTHOR_AI } }],
+        },
+        { updateSelection: true }
+      );
+      showPolishNotice(`已润色 · ${result.stats.changeCount} 处优化（AI 蓝色标记）`);
+    } catch (e) {
+      console.warn('[polish] 润色失败:', e);
+      showPolishNotice('润色失败，请稍后重试');
+    }
+  }, [editor, docId, showPolishNotice]);
+
   // ---- 批注面板渲染数据 ----
   const paraNow =
     editor && commentPanel
@@ -798,6 +800,13 @@ export function CollaborativeEditor({
         </span>
       </div>
 
+      {/* 润色结果提示 (右上角浮层) */}
+      {polishNotice && (
+        <div className="polish-toast" role="status">
+          {polishNotice}
+        </div>
+      )}
+
       {/* 编辑器主体 */}
       <div className="flex-1 overflow-y-auto">
         {/* 选中文字浮动菜单 */}
@@ -830,6 +839,12 @@ export function CollaborativeEditor({
                 title="行内代码"
                 active={editor.isActive('code')}
                 onClick={() => editor.chain().focus().toggleCode().run()}
+              />
+              <span className="w-px h-4 bg-white/15 mx-0.5" />
+              <BubbleBtn
+                label="润色"
+                title="写稿人润色 (选中文字或当前段落)"
+                onClick={handlePolish}
               />
               <span className="w-px h-4 bg-white/15 mx-0.5" />
               <BubbleBtn

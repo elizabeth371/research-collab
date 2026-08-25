@@ -2,6 +2,10 @@ import type {
   Document,
   WatermarkDetectionResult,
   AgentMessage,
+  PolishChange,
+  PolishResult,
+  ReviewIssue,
+  ReviewResult,
 } from '@shared/types';
 
 /**
@@ -148,6 +152,73 @@ export const getAgentMessages = (sessionId: string) =>
   request<AgentMessagesResponse>(
     `/agents/sessions/${sessionId}/messages`
   );
+
+// ---------------------------------------------------------------------------
+// 写稿人润色 / 审稿人红牌
+// ---------------------------------------------------------------------------
+
+/** 后端 /api/agents/polish 的原始响应 (snake_case, 见 api/agents.py) */
+interface BackendPolishResponse {
+  polished: string;
+  changes: Array<{ type: PolishChange['type']; before: string; after: string }>;
+  stats: { chars_before: number; chars_after: number; change_count: number };
+}
+
+/** 写稿人润色: 对选中文本/段落执行学术化润色 (返回润色结果与变更清单) */
+export const polishText = async (
+  docId: string,
+  text: string
+): Promise<PolishResult> => {
+  const raw = await request<BackendPolishResponse>('/agents/polish', {
+    method: 'POST',
+    body: JSON.stringify({ doc_id: docId, text }),
+  });
+  return {
+    polished: raw.polished,
+    changes: raw.changes,
+    stats: {
+      charsBefore: raw.stats.chars_before,
+      charsAfter: raw.stats.chars_after,
+      changeCount: raw.stats.change_count,
+    },
+  };
+};
+
+/** 后端 /api/agents/review 的原始响应 (snake_case) */
+interface BackendReviewResponse {
+  doc_id: string;
+  passed: boolean;
+  issues: Array<{
+    level: ReviewIssue['level'];
+    message: string;
+    para_index?: number | null;
+  }>;
+  red_cards: number;
+  yellow_cards: number;
+  stats: Record<string, unknown>;
+}
+
+/** 审稿人红牌检查: 对文档当前全文执行红牌/黄牌分级审查 */
+export const reviewDocument = async (
+  docId: string
+): Promise<ReviewResult> => {
+  const raw = await request<BackendReviewResponse>('/agents/review', {
+    method: 'POST',
+    body: JSON.stringify({ doc_id: docId }),
+  });
+  return {
+    docId: raw.doc_id,
+    passed: raw.passed,
+    issues: raw.issues.map((i) => ({
+      level: i.level,
+      message: i.message,
+      paraIndex: i.para_index ?? null,
+    })),
+    redCards: raw.red_cards,
+    yellowCards: raw.yellow_cards,
+    stats: raw.stats,
+  };
+};
 
 // ---------------------------------------------------------------------------
 // 系统初始化 / 溯源链

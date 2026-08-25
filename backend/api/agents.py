@@ -14,10 +14,13 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_db
+from models import Document
 from services.agent_orchestrator import (
     AgentType,
     OrchestratorService,
 )
+from services.academic_review import AcademicReviewEngine
+from services.polish_engine import PolishEngine
 
 router = APIRouter(prefix="/api/agents", tags=["agents"])
 
@@ -54,6 +57,57 @@ class AgentSessionOut(BaseModel):
     doc_id: uuid.UUID
     status: str
     created_at: str
+
+
+# ---------------------------------------------------------------------------
+# 写稿人润色 / 审稿人红牌 (轻量端点, 不经过 LangGraph 流水线)
+# ---------------------------------------------------------------------------
+class PolishRequest(BaseModel):
+    """润色请求体"""
+
+    doc_id: uuid.UUID
+    text: str = Field(..., min_length=1, max_length=20000, description="待润色文本 (选中文字或段落)")
+
+
+class PolishChangeOut(BaseModel):
+    """一条润色变更"""
+
+    type: str    # phrasing / redundancy / punctuation / sentence
+    before: str
+    after: str
+
+
+class PolishResponse(BaseModel):
+    """润色结果"""
+
+    polished: str
+    changes: List[PolishChangeOut]
+    stats: dict
+
+
+class ReviewRequest(BaseModel):
+    """审稿请求体"""
+
+    doc_id: uuid.UUID
+
+
+class ReviewIssueOut(BaseModel):
+    """一条审稿问题 (红牌=error / 黄牌=warning)"""
+
+    level: str
+    message: str
+    para_index: Optional[int] = None
+
+
+class ReviewResponse(BaseModel):
+    """审稿结果"""
+
+    doc_id: str
+    passed: bool
+    issues: List[ReviewIssueOut]
+    red_cards: int
+    yellow_cards: int
+    stats: dict
 
 
 # ---------------------------------------------------------------------------
@@ -139,4 +193,51 @@ async def get_session_messages(
         "session_id": str(session_id),
         "messages": messages,
         "total": len(messages),
+    }
+
+
+# ---------------------------------------------------------------------------
+# 写稿人润色 / 审稿人红牌端点
+# ---------------------------------------------------------------------------
+async def _ensure_doc_exists(db: AsyncSession, doc_id: uuid.UUID) -> Document:
+    doc = await db.get(Document, doc_id)
+    if doc is None:
+        raise HTTPException(status_code=404, detail="Document not found")
+    return doc
+
+
+@router.post("/polish", response_model=PolishResponse)
+async def polish_text(
+    payload: PolishRequest,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """
+    写稿人润色: 对选中文本 / 段落执行学术化润色。
+
+    规则引擎确定性输出, 返回润色后文本与变更清单 (供前端展示与溯源)。
+    """
+    await _ensure_doc_exists(db, payload.doc_id)
+    return PolishEngine.polish_text(payload.text)
+
+
+@router.post("/review", response_model=ReviewResponse)
+async def review_document(
+    payload: ReviewRequest,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """
+    审稿人红牌检查: 对文档当前全文执行红牌/黄牌分级审查。
+
+    读取数据库中的最新内容 (Markdown 文本), 按段落 (1 起) 定位问题,
+    返回红牌 (error) / 黄牌 (warning) 计数与明细。
+    """
+    doc = await _ensure_doc_exists(db, payload.doc_id)
+    result = AcademicReviewEngine.review_document(doc.content or "")
+    return {
+        "doc_id": str(payload.doc_id),
+        "passed": result["passed"],
+        "issues": result["issues"],
+        "red_cards": result["red_cards"],
+        "yellow_cards": result["yellow_cards"],
+        "stats": result["stats"],
     }

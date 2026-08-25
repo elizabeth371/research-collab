@@ -295,8 +295,8 @@ async def supervisor_agent_node(state: State) -> Dict[str, Any]:
     SupervisorAgent 节点 (导师审稿 / 质量控制):
     - 汇总 research_output + draft
     - 调用 AcademicReviewEngine 执行学术规范静态检查
-      (引用格式 / 编号连续性 / 参考文献章节 / 篇幅完整性)
-    - 输出结构化评审意见
+      (红牌/黄牌分级 + 段落定位, 覆盖引用格式/编号连续性/参考文献/篇幅/论据支撑)
+    - 输出结构化评审意见 (红牌=error 级, 黄牌=warning 级)
 
     TODO:
       - 接入 LLM 语义评审
@@ -307,20 +307,25 @@ async def supervisor_agent_node(state: State) -> Dict[str, Any]:
     from services.academic_review import AcademicReviewEngine
 
     draft = state.get("draft", "")
-    review = AcademicReviewEngine.review(draft)
+    review = AcademicReviewEngine.review_document(draft)
+    stats = review["stats"]
+    red = review["red_cards"]
+    yellow = review["yellow_cards"]
 
     if review["passed"]:
-        stats = review["stats"]
+        extra = f" (另 {yellow} 条黄牌建议)" if yellow else ""
         feedback = (
             f"【导师审稿意见】✅ 通过。草稿 {stats['chars']} 字 / "
             f"{stats['paragraphs']} 段, 引用编号 {len(stats['citation_numbers'])} 处, "
-            "学术格式基本规范。建议补充实验对比章节以增强说服力。"
+            f"学术格式基本规范, 无红牌问题{extra}。"
         )
     else:
-        detail = "；".join(i["message"] for i in review["issues"] if i["level"] == "error")
-        if not detail:
-            detail = "；".join(i["message"] for i in review["issues"])
-        feedback = f"【导师审稿意见】❌ 需修改: {detail}"
+        red_msgs = [i["message"] for i in review["issues"] if i["level"] == "error"]
+        yellow_msgs = [i["message"] for i in review["issues"] if i["level"] == "warning"]
+        detail = "；".join(red_msgs) or "；".join(yellow_msgs)
+        feedback = (
+            f"【导师审稿意见】❌ 红牌 {red} 项 / 黄牌 {yellow} 项, 需修改: {detail}"
+        )
 
     # ---- 模拟评审结论 ----
     return {

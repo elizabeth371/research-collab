@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import type * as Y from 'yjs';
-import type { AgentMessage, AgentStatus, AgentType } from '@shared/types';
+import type { AgentMessage, AgentStatus, AgentType, ReviewResult } from '@shared/types';
 import { AgentStatus as AgentStatusEnum } from '@shared/types';
-import { triggerAgent, getAgentMessages } from '../../lib/api';
-import { appendAiText } from '../../lib/yjs';
+import { triggerAgent, getAgentMessages, reviewDocument, polishText } from '../../lib/api';
+import { appendAiText, AUTHOR_AI } from '../../lib/yjs';
 import { getCollabSession } from '../../lib/collab';
 
 /**
@@ -63,6 +63,11 @@ export function AgentPanel({ docId, username, ydoc }: AgentPanelProps) {
   const [prompt, setPrompt] = useState('');
   const [busy, setBusy] = useState<AgentType | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // ---- 审稿人红牌状态 ----
+  const [review, setReview] = useState<ReviewResult | null>(null);
+  const [reviewing, setReviewing] = useState(false);
+  const [polishingPara, setPolishingPara] = useState<number | null>(null);
+  const [reviewMsg, setReviewMsg] = useState<string | null>(null);
   const ydocRef = useRef(ydoc);
   ydocRef.current = ydoc;
 
@@ -102,6 +107,73 @@ export function AgentPanel({ docId, username, ydoc }: AgentPanelProps) {
       setError(e instanceof Error ? e.message : '触发失败');
     } finally {
       setBusy(null);
+    }
+  };
+
+  /** 审稿人: 对文档当前全文执行红牌/黄牌分级审查 */
+  const handleReview = async () => {
+    if (!docId || reviewing) return;
+    setReviewing(true);
+    setReviewMsg(null);
+    try {
+      const result = await reviewDocument(docId);
+      setReview(result);
+    } catch (e) {
+      setReviewMsg(e instanceof Error ? e.message : '审稿失败');
+    } finally {
+      setReviewing(false);
+    }
+  };
+
+  /** 取编辑器第 N 个顶层块 (1 起) 的文本与内容范围 */
+  const getBlockAt = (
+    paraIndex: number
+  ): { text: string; from: number; to: number } | null => {
+    const editor = getCollabSession(docId).editor;
+    if (!editor) return null;
+    let found: { text: string; from: number; to: number } | null = null;
+    let idx = 0;
+    editor.state.doc.forEach((node: any, offset: number) => {
+      idx += 1;
+      if (idx === paraIndex) {
+        found = {
+          text: node.textContent,
+          from: offset + 1,
+          to: offset + node.nodeSize - 1,
+        };
+      }
+    });
+    return found;
+  };
+
+  /** 按审稿意见润色指定段落 (AI 蓝色替换) */
+  const handlePolishParagraph = async (paraIndex: number) => {
+    const block = getBlockAt(paraIndex);
+    if (!block || !block.text.trim()) return;
+    setPolishingPara(paraIndex);
+    setReviewMsg(null);
+    try {
+      const result = await polishText(docId, block.text.trim());
+      if (result.stats.changeCount === 0) {
+        setReviewMsg(`第 ${paraIndex} 段已符合学术规范，无需润色`);
+        return;
+      }
+      const editor = getCollabSession(docId).editor;
+      editor?.commands.insertContentAt(
+        { from: block.from, to: block.to },
+        {
+          type: 'text',
+          text: result.polished,
+          // 与 appendText 相同的 author mark 结构 (蓝色 AI 标记)
+          marks: [{ type: 'author', attrs: { author: AUTHOR_AI } }],
+        },
+        { updateSelection: false }
+      );
+      setReviewMsg(`第 ${paraIndex} 段已润色（${result.stats.changeCount} 处优化），可重新审稿复查`);
+    } catch (e) {
+      setReviewMsg('润色失败，请稍后重试');
+    } finally {
+      setPolishingPara(null);
     }
   };
 
@@ -161,10 +233,11 @@ export function AgentPanel({ docId, username, ydoc }: AgentPanelProps) {
                 </button>
               ) : (
                 <button
-                  disabled
-                  className="mt-3 w-full text-xs py-1.5 rounded-md bg-slate-100 text-slate-400 cursor-not-allowed"
+                  onClick={handleReview}
+                  disabled={reviewing}
+                  className="mt-3 w-full text-xs font-medium py-1.5 rounded-md bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                 >
-                  质量总控 · 编排时自动运行
+                  {reviewing ? '审稿中...' : '开始审稿 · 红牌检查'}
                 </button>
               )}
 
@@ -185,6 +258,72 @@ export function AgentPanel({ docId, username, ydoc }: AgentPanelProps) {
           );
         })}
       </div>
+
+      {/* 审稿结果 (审稿人红牌检查) */}
+      {(review || reviewing) && (
+        <div className="border-t border-slate-200 px-4 py-3 bg-slate-50/50">
+          {reviewing && !review && (
+            <div className="text-xs text-slate-500">审稿人正在检查文档规范...</div>
+          )}
+          {review && (
+            <>
+              {review.redCards > 0 ? (
+                <div className="review-banner review-banner-red" role="alert">
+                  🟥 审稿人红牌警告 · {review.redCards} 项严重问题，请优先修改
+                </div>
+              ) : review.yellowCards > 0 ? (
+                <div className="review-banner review-banner-amber">
+                  ⚠️ 无红牌问题 · {review.yellowCards} 条黄牌建议
+                </div>
+              ) : (
+                <div className="review-banner review-banner-green">
+                  ✅ 审稿通过：格式规范，无红牌无黄牌
+                </div>
+              )}
+
+              <div className="mt-2 space-y-2 max-h-64 overflow-y-auto slim-scroll">
+                {review.issues.map((issue, i) => (
+                  <div
+                    key={i}
+                    className={`review-card review-card-${issue.level}`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className={`review-tag review-tag-${issue.level}`}>
+                        {issue.level === 'error'
+                          ? '红牌'
+                          : issue.level === 'warning'
+                            ? '黄牌'
+                            : '提示'}
+                      </span>
+                      {issue.paraIndex != null && (
+                        <span className="text-[10px] text-slate-400">
+                          第 {issue.paraIndex} 段
+                        </span>
+                      )}
+                    </div>
+                    <p className="review-card-msg">{issue.message}</p>
+                    {issue.paraIndex != null && (
+                      <button
+                        onClick={() => handlePolishParagraph(issue.paraIndex!)}
+                        disabled={polishingPara !== null}
+                        className="review-polish-btn"
+                      >
+                        {polishingPara === issue.paraIndex
+                          ? '润色中...'
+                          : '润色该段'}
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              {reviewMsg && (
+                <div className="mt-2 text-[11px] text-slate-500">{reviewMsg}</div>
+              )}
+            </>
+          )}
+        </div>
+      )}
 
       {/* 指令输入区 */}
       <div className="border-t border-slate-200 p-4">

@@ -120,6 +120,40 @@ export interface WatermarkDetectionResult {
   latencyMs: number;
 }
 
+// ==================== 写稿人润色 / 审稿人红牌 ====================
+
+/** 一条润色变更 (写稿人 Agent 产出, 供展示与溯源) */
+export interface PolishChange {
+  type: 'phrasing' | 'redundancy' | 'punctuation' | 'sentence';
+  before: string;
+  after: string;
+}
+
+/** 润色结果 */
+export interface PolishResult {
+  polished: string;
+  changes: PolishChange[];
+  stats: { charsBefore: number; charsAfter: number; changeCount: number };
+}
+
+/** 一条审稿问题: error=红牌 / warning=黄牌 / info */
+export interface ReviewIssue {
+  level: 'error' | 'warning' | 'info';
+  message: string;
+  /** 问题所在段落 (1 起), 全文级问题为 null */
+  paraIndex?: number | null;
+}
+
+/** 审稿结果 (审稿人红牌检查) */
+export interface ReviewResult {
+  docId: string;
+  passed: boolean;
+  issues: ReviewIssue[];
+  redCards: number;
+  yellowCards: number;
+  stats: Record<string, unknown>;
+}
+
 // ==================== API 通用响应 ====================
 
 export interface ApiResponse<T = unknown> {

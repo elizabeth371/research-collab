@@ -43,6 +43,12 @@ const markdownSerializer = new MarkdownSerializer(
     // Tiptap mark 名 (bold/italic) -> 默认 strong/em 序列化实现
     bold: defaultMarkdownSerializer.marks.strong,
     italic: defaultMarkdownSerializer.marks.em,
+    // author mark (作者溯源标记) 在 Markdown 中序列化为纯文本 (空包围):
+    // 作者归属保存在 Yjs 属性与溯源链中, 无需进入 markdown 文本。
+    // 若不注册, serialize 遇到该 mark 会抛
+    // "Mark type `author` not supported by Markdown renderer",
+    // 导致防抖保存 (docToMarkdown) 崩溃, PATCH 永不发出。
+    author: { open: '', close: '', mixable: true, escape: false },
   }
 );
 
