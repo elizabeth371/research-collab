@@ -1,20 +1,35 @@
 import { useEffect, useRef, useState } from 'react';
 import type * as Y from 'yjs';
-import type { AgentMessage, AgentStatus, AgentType, ReviewResult } from '@shared/types';
-import { AgentStatus as AgentStatusEnum } from '@shared/types';
+import type { AgentMessage, AgentStatus, ReviewResult } from '@shared/types';
+import { AgentStatus as AgentStatusEnum, AgentType } from '@shared/types';
 import { triggerAgent, getAgentMessages, reviewDocument, polishText } from '../../lib/api';
 import { appendAiText, AUTHOR_AI } from '../../lib/yjs';
 import { getCollabSession } from '../../lib/collab';
 
 /**
- * Agent 交互面板
+ * Agent 群聊左栏
  * ------------------------------------------------------------------
- * 左侧边栏:
- *  - 三个 Agent 卡片: ResearchAgent / WriterAgent / SupervisorAgent
- *  - 触发按钮 -> POST /api/agents/invoke (LangGraph 编排)
- *  - 会话完成后拉取真实消息展示思考过程
- *  - Writer 产出自动以 author=ai 写入 Yjs 文档 (蓝色高亮)
+ * 将原「单触发面板」升级为群聊式时间流:
+ *  - 用户指令与三个 Agent 的回复按时间顺序排列为聊天气泡
+ *  - 同一文档内的多轮对话复用后端会话 (session_id), 消息在同一线程累积
+ *  - 每轮发送 = 一次 LangGraph 编排 (research -> writer -> supervisor),
+ *    三个 Agent 依次发言; Writer 产出自动以 author=ai 写入 Yjs (蓝色高亮)
+ *  - 「开始审稿」将审稿结果以 Supervisor 消息入列, 并保留红牌卡片/润色该段
  */
+
+/** 一条群聊消息 (用户气泡 / Agent 气泡 / 审稿入列消息) */
+interface ChatItem {
+  id: string;
+  role: 'user' | 'agent';
+  agentType?: AgentType;
+  content: string;
+  createdAt: string;
+}
+
+/** 会话/线程缓存: 按文档保存, 切换文档或组件重挂载后群聊不丢失 (服务端会话存内存) */
+const sessionCache = new Map<string, string>();
+const threadCache = new Map<string, ChatItem[]>();
+
 interface AgentPanelProps {
   docId: string;
   username: string;
@@ -23,34 +38,48 @@ interface AgentPanelProps {
 
 const AGENT_META: Record<
   AgentType,
-  { label: string; emoji: string; description: string; color: string }
+  { label: string; emoji: string; description: string; bubble: string; avatar: string }
 > = {
   research: {
     label: 'Research Agent',
     emoji: '🔬',
     description: '文献检索与资料分析',
-    color: 'border-blue-200',
+    bubble: 'border-blue-200 bg-blue-50',
+    avatar: 'border-blue-200 bg-blue-50',
   },
   writer: {
     label: 'Writer Agent',
     emoji: '✍️',
     description: '论文撰写与润色',
-    color: 'border-emerald-200',
+    bubble: 'border-emerald-200 bg-emerald-50',
+    avatar: 'border-emerald-200 bg-emerald-50',
   },
   supervisor: {
     label: 'Supervisor Agent',
     emoji: '🧠',
     description: '内容质量总控',
-    color: 'border-purple-200',
+    bubble: 'border-purple-200 bg-purple-50',
+    avatar: 'border-purple-200 bg-purple-50',
   },
 };
 
 const STATUS_META: Record<AgentStatus, { label: string; dot: string }> = {
-  idle: { label: '空闲', dot: 'bg-gray-400' },
+  idle: { label: '空闲', dot: 'bg-gray-300' },
   running: { label: '运行中', dot: 'bg-blue-500 animate-pulse' },
   waiting_human: { label: '等待人工', dot: 'bg-amber-500 animate-pulse' },
   completed: { label: '已完成', dot: 'bg-green-500' },
   error: { label: '出错', dot: 'bg-red-500' },
+};
+
+const ALL_RUNNING: Record<AgentType, AgentStatus> = {
+  research: AgentStatusEnum.RUNNING,
+  writer: AgentStatusEnum.RUNNING,
+  supervisor: AgentStatusEnum.RUNNING,
+};
+const ALL_COMPLETED: Record<AgentType, AgentStatus> = {
+  research: AgentStatusEnum.COMPLETED,
+  writer: AgentStatusEnum.COMPLETED,
+  supervisor: AgentStatusEnum.COMPLETED,
 };
 
 export function AgentPanel({ docId, username, ydoc }: AgentPanelProps) {
@@ -59,58 +88,105 @@ export function AgentPanel({ docId, username, ydoc }: AgentPanelProps) {
     writer: AgentStatusEnum.IDLE,
     supervisor: AgentStatusEnum.IDLE,
   });
-  const [messages, setMessages] = useState<AgentMessage[]>([]);
+  const [thread, setThread] = useState<ChatItem[]>(() => threadCache.get(docId) ?? []);
   const [prompt, setPrompt] = useState('');
-  const [busy, setBusy] = useState<AgentType | null>(null);
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // ---- 审稿人红牌状态 ----
+  // ---- 审稿人红牌状态 (保留卡片 + 润色该段) ----
   const [review, setReview] = useState<ReviewResult | null>(null);
   const [reviewing, setReviewing] = useState(false);
   const [polishingPara, setPolishingPara] = useState<number | null>(null);
   const [reviewMsg, setReviewMsg] = useState<string | null>(null);
+
   const ydocRef = useRef(ydoc);
   ydocRef.current = ydoc;
+  const sessionIdRef = useRef<string | null>(sessionCache.get(docId) ?? null);
+  const threadRef = useRef<HTMLDivElement>(null);
 
-  /** 触发 Agent: 调用后端 LangGraph 编排, 完成后拉取会话消息 */
-  const handleTrigger = async (type: AgentType) => {
-    if (!prompt.trim()) {
-      setError('请输入研究/写作指令');
-      return;
-    }
+  /** 切换文档时恢复该文档的群聊线程与会话 */
+  useEffect(() => {
+    setThread(threadCache.get(docId) ?? []);
+    sessionIdRef.current = sessionCache.get(docId) ?? null;
+    setReview(null);
+    setReviewMsg(null);
+  }, [docId]);
+
+  /** 追加消息到线程 (同步写回缓存, 按 id 去重) */
+  const appendThread = (items: ChatItem[]) => {
+    setThread((prev) => {
+      const ids = new Set(prev.map((i) => i.id));
+      const next = [...prev];
+      for (const it of items) {
+        if (!ids.has(it.id)) {
+          next.push(it);
+          ids.add(it.id);
+        }
+      }
+      threadCache.set(docId, next);
+      return next;
+    });
+  };
+
+  // 新消息到达时自动滚动到底部
+  useEffect(() => {
+    const el = threadRef.current;
+    if (el) el.scrollTo({ top: el.scrollHeight });
+  }, [thread, busy]);
+
+  /** 发送指令: 触发一次完整编排, 三个 Agent 依次入列发言 */
+  const handleSend = async () => {
+    const text = prompt.trim();
+    if (!text || busy) return;
+    setPrompt('');
     setError(null);
-    setBusy(type);
-    setStatuses((s) => ({ ...s, [type]: AgentStatusEnum.RUNNING }));
+    setBusy(true);
+    setStatuses(ALL_RUNNING);
+    appendThread([
+      {
+        id: `local-${Date.now()}`,
+        role: 'user',
+        content: text,
+        createdAt: new Date().toISOString(),
+      },
+    ]);
 
     try {
-      const { session_id: sessionId } = await triggerAgent(type, docId, prompt);
+      // 群聊会话: 首次不传 session_id, 之后复用同一会话实现多轮追问
+      const { session_id: sessionId } = await triggerAgent(
+        AgentType.RESEARCH,
+        docId,
+        text,
+        sessionIdRef.current ?? undefined
+      );
+      sessionIdRef.current = sessionId;
+      sessionCache.set(docId, sessionId);
 
-      // 后端为同步执行, invoke 返回即完成; 拉取真实会话消息
       const { messages: msgs } = await getAgentMessages(sessionId);
-      setMessages((prev) => [...prev, ...msgs]);
-
-      // 一次编排经过 research -> writer -> supervisor, 三个节点均已完成
-      setStatuses({
-        research: AgentStatusEnum.COMPLETED,
-        writer: AgentStatusEnum.COMPLETED,
-        supervisor: AgentStatusEnum.COMPLETED,
-      });
+      appendThread(
+        msgs.map((m) => ({
+          id: m.id,
+          role: 'agent' as const,
+          agentType: m.agentType,
+          content: m.content,
+          createdAt: m.createdAt ?? new Date().toISOString(),
+        }))
+      );
 
       // Writer 产出: 以 AI 作者身份写入 Yjs 文档 (蓝色高亮)
-      // 经 Tiptap editor 通道插入 (PM transaction), 避免 ySyncPlugin
-      // synchronize 回写丢弃直接 fragment 操作的内容。
-      const writerMsg = msgs.find((m) => m.agentType === 'writer');
+      const writerMsg = msgs.find((m) => m.agentType === AgentType.WRITER);
       if (writerMsg?.content) {
         appendAiText(getCollabSession(docId).editor, ydocRef.current, writerMsg.content);
       }
+      setStatuses(ALL_COMPLETED);
     } catch (e) {
-      setStatuses((s) => ({ ...s, [type]: AgentStatusEnum.ERROR }));
-      setError(e instanceof Error ? e.message : '触发失败');
+      setStatuses({ ...ALL_RUNNING, research: AgentStatusEnum.ERROR });
+      setError(e instanceof Error ? e.message : '协同处理失败');
     } finally {
-      setBusy(null);
+      setBusy(false);
     }
   };
 
-  /** 审稿人: 对文档当前全文执行红牌/黄牌分级审查 */
+  /** 审稿人: 对文档当前全文执行红牌/黄牌分级审查 (结果入列 Supervisor 消息) */
   const handleReview = async () => {
     if (!docId || reviewing) return;
     setReviewing(true);
@@ -118,6 +194,21 @@ export function AgentPanel({ docId, username, ydoc }: AgentPanelProps) {
     try {
       const result = await reviewDocument(docId);
       setReview(result);
+      const summary =
+        result.redCards > 0
+          ? `🟥 审稿完成：红牌 ${result.redCards} 项 / 黄牌 ${result.yellowCards} 项，存在严重问题，请优先修改下方卡片。`
+          : result.yellowCards > 0
+            ? `⚠️ 审稿完成：无红牌问题，${result.yellowCards} 条黄牌建议，详见下方卡片。`
+            : '✅ 审稿通过：格式规范，无红牌无黄牌。';
+      appendThread([
+        {
+          id: `review-${Date.now()}`,
+          role: 'agent',
+          agentType: AgentType.SUPERVISOR,
+          content: summary,
+          createdAt: new Date().toISOString(),
+        },
+      ]);
     } catch (e) {
       setReviewMsg(e instanceof Error ? e.message : '审稿失败');
     } finally {
@@ -180,88 +271,80 @@ export function AgentPanel({ docId, username, ydoc }: AgentPanelProps) {
   };
 
   return (
-    <aside className="w-80 shrink-0 flex flex-col bg-white border-r border-gray-200">
+    <aside className="w-80 shrink-0 flex flex-col bg-white border-r border-gray-200 h-full min-h-0">
       {/* 面板标题 */}
-      <div className="px-5 py-4 border-b border-slate-200">
-        <h2 className="panel-title text-base">Agent 面板</h2>
-        <p className="text-xs text-slate-400 mt-0.5">LangGraph 多智能体协同编排</p>
+      <div className="px-4 py-3 border-b border-slate-200">
+        <h2 className="panel-title text-base">Agent 群聊</h2>
+        <p className="text-[11px] text-slate-400 mt-0.5">
+          多智能体协同 · 同一文档内支持多轮追问
+        </p>
       </div>
 
-      {/* Agent 状态卡片列表 */}
-      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3 slim-scroll">
-        {(Object.keys(AGENT_META) as AgentType[]).map((type) => {
-          const meta = AGENT_META[type];
-          const status = statuses[type] ?? 'idle';
-          const statusMeta = STATUS_META[status];
-          const agentMsgs = messages.filter((m) => m.agentType === type);
+      {/* 三个 Agent 状态点 */}
+      <div className="flex items-center gap-2 px-4 py-2 border-b border-slate-100 bg-slate-50/60">
+        {(Object.keys(AGENT_META) as AgentType[]).map((type) => (
+          <span
+            key={type}
+            title={AGENT_META[type].description}
+            className="inline-flex items-center gap-1 text-[10px] text-slate-500"
+          >
+            <span>{AGENT_META[type].emoji}</span>
+            <span
+              className={`w-1.5 h-1.5 rounded-full ${STATUS_META[statuses[type] ?? 'idle'].dot}`}
+            />
+            <span>{STATUS_META[statuses[type] ?? 'idle'].label}</span>
+          </span>
+        ))}
+      </div>
 
-          return (
-            <div
-              key={type}
-              className={`border rounded-lg p-3 bg-slate-50/60 hover:bg-slate-50 transition-colors ${meta.color}`}
-            >
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <span className="w-8 h-8 rounded-lg bg-white border border-slate-200 flex items-center justify-center text-base shadow-sm shrink-0">
-                    {meta.emoji}
-                  </span>
-                  <div>
-                    <div className="text-sm font-medium text-slate-800">
-                      {meta.label}
-                    </div>
-                    <div className="text-[11px] text-slate-400">
-                      {meta.description}
-                    </div>
-                  </div>
-                </div>
-                <span className="inline-flex items-center gap-1.5 text-[11px] text-slate-500">
-                  <span className={`w-2 h-2 rounded-full ${statusMeta.dot}`} />
-                  {statusMeta.label}
-                </span>
+      {/* 群聊消息流 */}
+      <div ref={threadRef} className="flex-1 overflow-y-auto px-4 py-3 space-y-3 slim-scroll min-h-0">
+        {thread.length === 0 && (
+          <div className="text-[11px] text-slate-400 leading-relaxed mt-2">
+            向群里发送指令（如「检索水印算法文献并总结」），三个 Agent 将依次
+            🔬 检索文献 → ✍️ 起草内容 → 🧠 审阅质量。发送多轮指令可继续追问。
+          </div>
+        )}
+
+        {thread.map((m) =>
+          m.role === 'user' ? (
+            <div key={m.id} className="flex justify-end">
+              <div className="max-w-[88%] rounded-xl rounded-tr-sm bg-slate-800 text-white text-xs leading-relaxed px-3 py-2 whitespace-pre-wrap break-words">
+                {m.content}
               </div>
-
-              {/* 触发按钮 */}
-              {type !== 'supervisor' ? (
-                <button
-                  onClick={() => handleTrigger(type)}
-                  disabled={busy !== null}
-                  className="mt-3 w-full text-xs font-medium py-1.5 rounded-md bg-ink text-white hover:bg-ink-hover disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                >
-                  {busy === type
-                    ? '运行中...'
-                    : type === 'research'
-                      ? '启动文献检索'
-                      : '启动论文写作'}
-                </button>
-              ) : (
-                <button
-                  onClick={handleReview}
-                  disabled={reviewing}
-                  className="mt-3 w-full text-xs font-medium py-1.5 rounded-md bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                >
-                  {reviewing ? '审稿中...' : '开始审稿 · 红牌检查'}
-                </button>
-              )}
-
-              {/* 思考过程输出 */}
-              {agentMsgs.length > 0 && (
-                <div className="mt-3 space-y-2 max-h-48 overflow-y-auto slim-scroll">
-                  {agentMsgs.map((msg) => (
-                    <div
-                      key={msg.id}
-                      className="text-[11px] leading-relaxed bg-white border border-slate-100 rounded p-2 text-slate-600"
-                    >
-                      <p className="whitespace-pre-wrap break-words">{msg.content}</p>
-                    </div>
-                  ))}
-                </div>
-              )}
             </div>
-          );
-        })}
+          ) : (
+            <div key={m.id} className="flex gap-2 items-start">
+              <span
+                className={`w-7 h-7 rounded-lg border flex items-center justify-center text-sm shrink-0 mt-0.5 shadow-sm ${AGENT_META[m.agentType ?? AgentType.SUPERVISOR]?.avatar ?? AGENT_META.supervisor.avatar}`}
+              >
+                {AGENT_META[m.agentType ?? AgentType.SUPERVISOR]?.emoji ?? AGENT_META.supervisor.emoji}
+              </span>
+              <div className="min-w-0">
+                <div className="text-[10px] text-slate-400 mb-0.5">
+                  {AGENT_META[m.agentType ?? AgentType.SUPERVISOR]?.label ?? AGENT_META.supervisor.label}
+                </div>
+                <div
+                  className={`rounded-xl rounded-tl-sm border text-[11px] leading-relaxed px-2.5 py-2 text-slate-700 whitespace-pre-wrap break-words ${AGENT_META[m.agentType ?? AgentType.SUPERVISOR]?.bubble ?? AGENT_META.supervisor.bubble}`}
+                >
+                  {m.content}
+                </div>
+              </div>
+            </div>
+          )
+        )}
+
+        {busy && (
+          <div className="flex gap-2 items-center text-[11px] text-slate-400">
+            <span className="w-7 h-7 rounded-lg border border-slate-200 bg-slate-50 flex items-center justify-center text-sm shrink-0 animate-pulse">
+              🤖
+            </span>
+            正在协同处理…（🔬 检索 → ✍️ 起草 → 🧠 审阅）
+          </div>
+        )}
       </div>
 
-      {/* 审稿结果 (审稿人红牌检查) */}
+      {/* 审稿结果 (审稿人红牌卡片 + 润色该段) */}
       {(review || reviewing) && (
         <div className="border-t border-slate-200 px-4 py-3 bg-slate-50/50">
           {reviewing && !review && (
@@ -283,12 +366,9 @@ export function AgentPanel({ docId, username, ydoc }: AgentPanelProps) {
                 </div>
               )}
 
-              <div className="mt-2 space-y-2 max-h-64 overflow-y-auto slim-scroll">
+              <div className="mt-2 space-y-2 max-h-56 overflow-y-auto slim-scroll">
                 {review.issues.map((issue, i) => (
-                  <div
-                    key={i}
-                    className={`review-card review-card-${issue.level}`}
-                  >
+                  <div key={i} className={`review-card review-card-${issue.level}`}>
                     <div className="flex items-center justify-between gap-2">
                       <span className={`review-tag review-tag-${issue.level}`}>
                         {issue.level === 'error'
@@ -310,9 +390,7 @@ export function AgentPanel({ docId, username, ydoc }: AgentPanelProps) {
                         disabled={polishingPara !== null}
                         className="review-polish-btn"
                       >
-                        {polishingPara === issue.paraIndex
-                          ? '润色中...'
-                          : '润色该段'}
+                        {polishingPara === issue.paraIndex ? '润色中...' : '润色该段'}
                       </button>
                     )}
                   </div>
@@ -327,8 +405,31 @@ export function AgentPanel({ docId, username, ydoc }: AgentPanelProps) {
         </div>
       )}
 
+      {/* 快速动作 */}
+      <div className="flex items-center gap-1.5 px-4 pt-2.5 border-t border-slate-100">
+        <button
+          onClick={() => setPrompt('帮我检索关于 AI 水印 (watermark) 与版权溯源的文献并总结')}
+          className="text-[11px] px-2 py-1 rounded-md border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors"
+        >
+          🔬 检索文献
+        </button>
+        <button
+          onClick={() => setPrompt('请基于已检索的文献，撰写论文引言章节草稿')}
+          className="text-[11px] px-2 py-1 rounded-md border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors"
+        >
+          ✍️ 撰写草稿
+        </button>
+        <button
+          onClick={handleReview}
+          disabled={reviewing}
+          className="text-[11px] px-2 py-1 rounded-md border border-red-200 text-red-600 bg-red-50 hover:bg-red-100 disabled:opacity-40 transition-colors"
+        >
+          {reviewing ? '审稿中...' : '🧠 开始审稿'}
+        </button>
+      </div>
+
       {/* 指令输入区 */}
-      <div className="border-t border-slate-200 p-4">
+      <div className="border-t border-slate-200 p-3">
         {error && (
           <div className="mb-2 text-[11px] text-red-500 bg-red-50 rounded px-2 py-1">
             {error}
@@ -337,13 +438,28 @@ export function AgentPanel({ docId, username, ydoc }: AgentPanelProps) {
         <textarea
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
-          placeholder="输入给 Agent 的指令，如：检索关于水印算法的文献并总结…"
-          rows={3}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+              e.preventDefault();
+              void handleSend();
+            }
+          }}
+          placeholder="给 Agent 群发指令，如：检索关于水印算法的文献并总结…（Enter 发送 / Shift+Enter 换行）"
+          rows={2}
           className="w-full text-xs p-2.5 rounded-md border border-slate-300 focus:outline-none focus:ring-2 focus:ring-accent/30 resize-none"
         />
-        <p className="mt-1 text-[10px] text-slate-400">
-          当前用户: {username} · AI 产出将自动以蓝色高亮写入文档
-        </p>
+        <div className="mt-1.5 flex items-center justify-between">
+          <p className="text-[10px] text-slate-400">
+            当前用户: {username} · AI 产出将自动以蓝色高亮写入文档
+          </p>
+          <button
+            onClick={() => void handleSend()}
+            disabled={busy || !prompt.trim()}
+            className="text-[11px] font-medium px-3 py-1 rounded-md bg-ink text-white hover:bg-ink-hover disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+          >
+            {busy ? '处理中...' : '发送'}
+          </button>
+        </div>
       </div>
     </aside>
   );

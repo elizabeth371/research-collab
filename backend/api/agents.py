@@ -37,6 +37,10 @@ class AgentInvokeRequest(BaseModel):
     doc_id: uuid.UUID
     agent_type: AgentType
     instruction: str = Field(..., min_length=1, description="给 Agent 的具体指令")
+    session_id: Optional[uuid.UUID] = Field(
+        default=None,
+        description="群聊会话 ID (可选): 传入时在同一会话线程内追加多轮消息",
+    )
 
 
 class AgentStateOut(BaseModel):
@@ -130,12 +134,13 @@ async def invoke_agent(
         doc_id=str(payload.doc_id),
         agent_type=payload.agent_type,
         instruction=payload.instruction,
+        session_id=str(payload.session_id) if payload.session_id else None,
     )
 
     return {
         "accepted": True,
         "session_id": session_id,
-        "message": f"{payload.agent_type} agent 已启动",
+        "message": f"{payload.agent_type.value} agent 已启动",
     }
 
 

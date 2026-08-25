@@ -2,6 +2,7 @@ import type {
   Document,
   WatermarkDetectionResult,
   AgentMessage,
+  AgentType,
   PolishChange,
   PolishResult,
   ReviewIssue,
@@ -134,9 +135,10 @@ export interface AgentMessagesResponse {
  * 字段与后端 AgentInvokeRequest 对齐: doc_id, agent_type, instruction
  */
 export const triggerAgent = (
-  agentType: 'research' | 'writer' | 'supervisor',
+  agentType: AgentType,
   docId: string,
-  prompt: string
+  prompt: string,
+  sessionId?: string
 ) =>
   request<AgentInvokeResponse>('/agents/invoke', {
     method: 'POST',
@@ -144,6 +146,8 @@ export const triggerAgent = (
       agent_type: agentType,
       doc_id: docId,
       instruction: prompt,
+      // 群聊会话: 传入已有 session_id 时在同一线程内追加多轮消息
+      ...(sessionId ? { session_id: sessionId } : {}),
     }),
   });
 

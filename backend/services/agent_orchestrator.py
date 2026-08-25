@@ -456,14 +456,18 @@ class OrchestratorService:
         doc_id: str,
         agent_type: AgentType,
         instruction: str,
+        session_id: Optional[str] = None,
     ) -> str:
         """
-        启动一个新的 Agent 会话。
+        启动一个新的 Agent 会话 (或复用群聊会话继续多轮追问)。
 
         Args:
             doc_id:       目标文档 ID
             agent_type:   触发的 Agent 类型
             instruction:  给 Agent 的指令
+            session_id:   可选。传入已存在的会话 ID 时, 复用该会话的消息历史,
+                          三个节点把新消息追加到既有历史 (同一线程内多轮对话);
+                          未传或不存在时创建新会话。
 
         Returns:
             session_id (UUID 字符串)
@@ -473,7 +477,14 @@ class OrchestratorService:
             StreamBufferService 将结果写入 Yjs 并推送 WebSocket
           - 此处为骨架: 直接同步执行图并更新会话状态
         """
-        session_id = str(uuid.uuid4())
+        # 群聊会话复用: 继承既有消息历史 (节点以 *state.get("messages") 追加)
+        if session_id and session_id in self._sessions:
+            prev_messages = (
+                self._sessions[session_id].get("state", {}).get("messages", [])
+            )
+        else:
+            session_id = str(uuid.uuid4())
+            prev_messages = []
 
         # 构建初始 State
         initial_state: State = {
@@ -481,7 +492,7 @@ class OrchestratorService:
             "session_id": session_id,
             "research_input": instruction,
             "writing_task": instruction,
-            "messages": [],
+            "messages": prev_messages,
             "status": AgentStatus.RUNNING.value,
             "metadata": {"model": "deepseek-v3"},  # TODO: 可配置
         }
