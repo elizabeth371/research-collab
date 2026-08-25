@@ -4,6 +4,7 @@ import * as Y from 'yjs';
 import { WebsocketProvider } from 'y-websocket';
 import { BubbleMenu, EditorContent, useEditor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
+import { MathInline, MathBlock } from '../../extensions/math';
 import Collaboration from '@tiptap/extension-collaboration';
 import CollaborationCursor from '@tiptap/extension-collaboration-cursor';
 import { Extension, Mark, mergeAttributes } from '@tiptap/core';
@@ -474,6 +475,9 @@ export function CollaborativeEditor({
       AuthorHighlight.configure({ ydoc }),
       // 段落批注徽章 (数据经 storage 注入)
       CommentHighlight.configure({}),
+      // LaTeX 数学公式 (katex 渲染, 原文存节点 attrs)
+      MathInline,
+      MathBlock,
     ],
     content: '',
     editorProps: {
@@ -757,6 +761,37 @@ export function CollaborativeEditor({
             title="有序列表"
             active={editor.isActive('orderedList')}
             onClick={() => editor.chain().focus().toggleOrderedList().run()}
+          />
+          <ToolbarDivider />
+          <ToolbarBtn
+            label="Σ"
+            title="行内公式 (LaTeX, 如 $x^2$)"
+            active={editor.isActive('mathInline')}
+            onClick={() =>
+              editor
+                .chain()
+                .focus()
+                .insertContent({
+                  type: 'mathInline',
+                  attrs: { latex: 'x^2 + y^2 = z^2' },
+                })
+                .run()
+            }
+          />
+          <ToolbarBtn
+            label="∫"
+            title="块级公式 (LaTeX, 如 $$\\int_0^1 x^2 dx$$)"
+            active={editor.isActive('mathBlock')}
+            onClick={() =>
+              editor
+                .chain()
+                .focus()
+                .insertContent({
+                  type: 'mathBlock',
+                  attrs: { latex: '\\int_0^1 x^2 \\, dx = \\frac{1}{3}' },
+                })
+                .run()
+            }
           />
           <ToolbarDivider />
           <ToolbarBtn

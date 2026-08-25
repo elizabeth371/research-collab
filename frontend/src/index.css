@@ -363,3 +363,43 @@ body {
   opacity: 0.45;
   cursor: not-allowed;
 }
+
+/* ======================================================================
+   LaTeX 数学公式 (MathInline / MathBlock, katex 渲染)
+   ====================================================================== */
+
+/* 行内公式: 保持基线对齐, 轻微背景提示可编辑 */
+.math-inline {
+  display: inline-block;
+  vertical-align: middle;
+  margin: 0 2px;
+  padding: 0 3px;
+  border-radius: 3px;
+  background: rgba(79, 70, 229, 0.06);
+  cursor: pointer;
+}
+.math-inline .katex {
+  font-size: 1.02em;
+}
+
+/* 块级公式: 居中显示 */
+.math-block {
+  display: block;
+  text-align: center;
+  margin: 10px 0;
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: rgba(79, 70, 229, 0.05);
+  border: 1px dashed rgba(79, 70, 229, 0.25);
+  overflow-x: auto;
+}
+.math-block .katex {
+  font-size: 1.12em;
+}
+
+/* katex 解析失败降级提示 */
+.math-error {
+  color: #dc2626;
+  font-style: italic;
+  padding: 0 4px;
+}
