@@ -133,7 +133,13 @@ export interface PolishChange {
 export interface PolishResult {
   polished: string;
   changes: PolishChange[];
-  stats: { charsBefore: number; charsAfter: number; changeCount: number };
+  stats: {
+    charsBefore: number;
+    charsAfter: number;
+    changeCount: number;
+    /** 实际生效引擎: 'llm' (配置 API Key) / 'rule' (规则引擎降级) */
+    engine?: 'llm' | 'rule';
+  };
 }
 
 /** 一条审稿问题: error=红牌 / warning=黄牌 / info */

@@ -257,28 +257,46 @@ async def writer_agent_node(state: State) -> Dict[str, Any]:
     """
     WriterAgent 节点 (论文写作):
     - 接收 research_output + writing_task
-    - 生成论文章节草稿
-    - 输出 draft
+    - 优先调用 LLM (OpenAI 兼容协议) 生成真实学术草稿;
+      未配置 API Key / 调用失败时降级到模拟草稿模板 (离线可演示)
+    - 输出 draft (将经 StreamBufferService 以 author=ai-agent 写入 Yjs)
 
     关键: 生成结果将通过 StreamBufferService 原子写入 Yjs,
           且前景字体为蓝色 (作者属性 author=ai-agent)。
     """
     print(f"[WriterAgent] 基于研究结果起草: {state.get('writing_task', '')}")
 
-    # ---- 模拟写作 ----
-    await asyncio.sleep(0.1)  # 模拟耗时
+    await asyncio.sleep(0.1)  # 统一最小耗时, 保证前端流转可感知
 
     research = state.get("research_output", "")
-    draft = (
-        "【模拟写作草稿】\n"
-        f"基于以下研究背景，本文提出面向科研诚信的多Agent协同框架：\n{research}\n"
-        "系统结合 Yjs 实时协同与 Kirchenbauer 水印技术，"
-        "实现 AI 生成内容可信溯源。"
-    )
+    task = (state.get("writing_task") or "").strip()
+    engine = "rule"
+    draft: Optional[str] = None
+
+    # ---- 1. LLM 真实生成 (可插拔, 无 key 自动跳过) ----
+    try:
+        from services.llm_client import llm_client
+
+        if llm_client.is_available():
+            draft = await llm_client.write_draft(task, research)
+    except Exception as e:  # pragma: no cover - LLM 失败不阻断流程
+        print(f"[WriterAgent] LLM 草稿生成失败 ({type(e).__name__}: {e}), 降级模板")
+
+    # ---- 2. 规则/模板降级 ----
+    if draft:
+        engine = "llm"
+    else:
+        draft = (
+            "【模拟写作草稿 · 规则模式】\n"
+            f"基于以下研究背景，本文提出面向科研诚信的多Agent协同框架：\n{research}\n"
+            "系统结合 Yjs 实时协同与 Kirchenbauer 水印技术，"
+            "实现 AI 生成内容可信溯源。"
+        )
 
     return {
         "draft": draft,
         "status": AgentStatus.COMPLETED.value,
+        "metadata": {**(state.get("metadata") or {}), "writer_engine": engine},
         "messages": [
             *state.get("messages", []),
             {

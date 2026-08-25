@@ -161,7 +161,12 @@ export const getAgentMessages = (sessionId: string) =>
 interface BackendPolishResponse {
   polished: string;
   changes: Array<{ type: PolishChange['type']; before: string; after: string }>;
-  stats: { chars_before: number; chars_after: number; change_count: number };
+  stats: {
+    chars_before: number;
+    chars_after: number;
+    change_count: number;
+    engine?: 'llm' | 'rule'; // 实际生效引擎 (配置 LLM Key 后为 llm)
+  };
 }
 
 /** 写稿人润色: 对选中文本/段落执行学术化润色 (返回润色结果与变更清单) */
@@ -180,6 +185,7 @@ export const polishText = async (
       charsBefore: raw.stats.chars_before,
       charsAfter: raw.stats.chars_after,
       changeCount: raw.stats.change_count,
+      ...(raw.stats.engine ? { engine: raw.stats.engine } : {}),
     },
   };
 };

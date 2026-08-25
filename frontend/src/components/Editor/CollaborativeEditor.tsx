@@ -662,7 +662,9 @@ export function CollaborativeEditor({
         },
         { updateSelection: true }
       );
-      showPolishNotice(`已润色 · ${result.stats.changeCount} 处优化（AI 蓝色标记）`);
+      showPolishNotice(
+        `已润色 · ${result.stats.engine === 'llm' ? 'LLM 语义润色 · ' : '规则引擎 · '}${result.stats.changeCount} 处优化（AI 蓝色标记）`
+      );
     } catch (e) {
       console.warn('[polish] 润色失败:', e);
       showPolishNotice('润色失败，请稍后重试');

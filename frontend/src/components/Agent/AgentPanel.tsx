@@ -169,7 +169,9 @@ export function AgentPanel({ docId, username, ydoc }: AgentPanelProps) {
         },
         { updateSelection: false }
       );
-      setReviewMsg(`第 ${paraIndex} 段已润色（${result.stats.changeCount} 处优化），可重新审稿复查`);
+      setReviewMsg(
+        `第 ${paraIndex} 段已润色（${result.stats.engine === 'llm' ? 'LLM 语义润色 · ' : '规则引擎 · '}${result.stats.changeCount} 处优化），可重新审稿复查`
+      );
     } catch (e) {
       setReviewMsg('润色失败，请稍后重试');
     } finally {

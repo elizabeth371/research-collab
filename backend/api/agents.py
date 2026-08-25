@@ -214,10 +214,22 @@ async def polish_text(
     """
     写稿人润色: 对选中文本 / 段落执行学术化润色。
 
-    规则引擎确定性输出, 返回润色后文本与变更清单 (供前端展示与溯源)。
+    优先 LLM 语义润色 (已配置 API Key 时), 失败或无 Key 自动降级到
+    确定性规则引擎。stats.engine 标注实际生效模式 ('llm' / 'rule')。
     """
     await _ensure_doc_exists(db, payload.doc_id)
-    return PolishEngine.polish_text(payload.text)
+
+    from services.llm_client import llm_client
+
+    if llm_client.is_available():
+        result = await llm_client.polish_text(payload.text)
+        if result is not None:
+            result["stats"]["engine"] = "llm"
+            return result
+
+    result = PolishEngine.polish_text(payload.text)
+    result["stats"]["engine"] = "rule"
+    return result
 
 
 @router.post("/review", response_model=ReviewResponse)
