@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import * as Y from 'yjs';
 import { WebsocketProvider } from 'y-websocket';
@@ -12,7 +12,8 @@ import { Decoration, DecorationSet } from '@tiptap/pm/view';
 import { getCollabSession } from '../../lib/collab';
 import { collectAuthors, getAuthorFromDelta } from '../../lib/yjs';
 import { markdownToHtml, docToMarkdown } from '../../lib/markdown';
-import { updateDocument } from '../../lib/api';
+import { updateDocument, getComments, addComment, deleteComment } from '../../lib/api';
+import type { CommentItem } from '../../lib/api';
 
 /**
  * 作者标记 (author mark)
@@ -277,6 +278,105 @@ const AuthorHighlight = Extension.create({
 });
 
 /**
+ * 段落批注标记扩展
+ * ----------------
+ * 对"有批注的段落"在段尾渲染计数徽章 (Decoration widget), 点击打开批注面板。
+ *
+ * Tiptap extension options 在 configure 后不可变, 而批注数据会随
+ * 新增/删除变化: 组件内将最新 comments 与点击回调写入 extension storage,
+ * 并通过带 commentRefresh meta 的空事务触发 decorations 重算。
+ */
+const CommentHighlight = Extension.create({
+  name: 'commentHighlight',
+
+  addStorage() {
+    return {
+      comments: [] as CommentItem[],
+      onOpen: null as ((paraIndex: number, snapshot: string) => void) | null,
+      lastDecorations: DecorationSet.empty as DecorationSet,
+    };
+  },
+
+  addProseMirrorPlugins() {
+    const ext = this;
+    const pluginKey = new PluginKey('commentHighlight');
+
+    const computeDecorations = (doc: any): DecorationSet => {
+      const comments = ext.storage.comments as CommentItem[];
+      if (comments.length === 0) return DecorationSet.empty;
+
+      // para_index -> { snapshot, count }
+      const byIndex = new Map<number, { snapshot: string; count: number }>();
+      for (const c of comments) {
+        const cur = byIndex.get(c.para_index) ?? { snapshot: '', count: 0 };
+        cur.snapshot = c.para_snapshot;
+        cur.count += 1;
+        byIndex.set(c.para_index, cur);
+      }
+
+      const decorations: Decoration[] = [];
+      let paraIndex = 0;
+      doc.forEach((node: any, offset: number) => {
+        paraIndex += 1;
+        const target = byIndex.get(paraIndex);
+        if (!target) return;
+        const { snapshot, count } = target;
+        // 段内文字末尾 (node.nodeSize - 1), 徽章内联渲染在段尾
+        const pos = offset + node.nodeSize - 1;
+        // paraIndex 是 forEach 外的共享变量, 而 widget DOM 惰性创建:
+        // 渲染时 paraIndex 已累加到末值, 必须在此处固化到迭代局部变量
+        const badgeParaIndex = paraIndex;
+        const badgeSnapshot = snapshot;
+        decorations.push(
+          Decoration.widget(
+            pos,
+            () => {
+              const badge = document.createElement('button');
+              badge.type = 'button';
+              badge.className = 'comment-badge';
+              badge.textContent = `批注 ${count}`;
+              badge.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                ext.storage.onOpen?.(badgeParaIndex, badgeSnapshot);
+              });
+              return badge;
+            },
+            { side: 1, ignoreSelection: true }
+          )
+        );
+      });
+      return DecorationSet.create(doc, decorations);
+    };
+
+    return [
+      new Plugin({
+        key: pluginKey,
+        state: {
+          init(_config, state) {
+            return computeDecorations(state.doc);
+          },
+          apply(tr, oldDecos, _oldState, newState) {
+            // 文档变化 (段落重排) 或批注数据刷新时重算
+            if (tr.docChanged || tr.getMeta('commentRefresh')) {
+              const fresh = computeDecorations(newState.doc);
+              ext.storage.lastDecorations = fresh;
+              return fresh;
+            }
+            return oldDecos.map(tr.mapping, tr.doc);
+          },
+        },
+        props: {
+          decorations(state) {
+            return (ext.storage.lastDecorations ?? DecorationSet.empty) as any;
+          },
+        },
+      }),
+    ];
+  },
+});
+
+/**
  * 主组件
  */
 export function CollaborativeEditor({
@@ -292,6 +392,79 @@ export function CollaborativeEditor({
   const [onlineCount, setOnlineCount] = useState(1);
   const [authors, setAuthors] = useState<Set<string>>(() => new Set());
   const authorsRef = useRef(new Set<string>());
+
+  // ---- 段落批注状态 ----
+  const [comments, setComments] = useState<CommentItem[]>([]);
+  const [commentPanel, setCommentPanel] = useState<{
+    paraIndex: number;
+    snapshot: string;
+  } | null>(null);
+  const [commentDraft, setCommentDraft] = useState('');
+
+  /** 取文档第 paraIndex 个顶层块的当前文本 (1 起) */
+  const getParaText = useCallback((doc: any, paraIndex: number): string => {
+    let i = 1;
+    let text = '';
+    doc.forEach((node: any) => {
+      if (i === paraIndex) text = node.textContent || '';
+      i += 1;
+    });
+    return text;
+  }, []);
+
+  /** 打开批注面板 (徽章点击 / 浮动菜单入口共用) */
+  const openCommentPanel = useCallback((paraIndex: number, snapshot: string) => {
+    setCommentPanel({ paraIndex, snapshot });
+    setCommentDraft('');
+  }, []);
+
+  // ---- 加载批注列表 (切文档时刷新) ----
+  useEffect(() => {
+    let cancelled = false;
+    getComments(docId)
+      .then((list) => {
+        if (!cancelled) setComments(list);
+      })
+      .catch(() => {
+        /* 拉取失败静默, 批注功能仍可用 */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [docId]);
+
+  const handleAddComment = async () => {
+    if (!commentPanel || !commentDraft.trim()) return;
+    try {
+      await addComment(docId, {
+        paraIndex: commentPanel.paraIndex,
+        paraSnapshot: commentPanel.snapshot,
+        author: username,
+        content: commentDraft.trim(),
+      });
+      setCommentDraft('');
+      setComments(await getComments(docId));
+    } catch (e) {
+      console.warn('[comment] 添加批注失败:', e);
+    }
+  };
+
+  const handleDeleteComment = async (commentId: string) => {
+    try {
+      await deleteComment(docId, commentId);
+      setComments(await getComments(docId));
+    } catch (e) {
+      console.warn('[comment] 删除批注失败:', e);
+    }
+  };
+
+  const formatTime = (iso: string): string =>
+    new Date(iso).toLocaleString('zh-CN', {
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
 
   // ---- 复用模块级协同会话 (Y.Doc + WebSocket provider) ----
   // 单例缓存的必要性:
@@ -350,6 +523,8 @@ export function CollaborativeEditor({
       }),
       // 自定义扩展: 需要读取 ydoc 实例 (通过 args 传入)
       AuthorHighlight.configure({ ydoc }),
+      // 段落批注徽章 (数据经 storage 注入)
+      CommentHighlight.configure({}),
     ],
     content: '',
     editorProps: {
@@ -371,6 +546,36 @@ export function CollaborativeEditor({
       }
     };
   }, [editor, session]);
+
+  /** 从当前选区/光标所在段落发起批注 */
+  const openCommentForSelection = useCallback(() => {
+    if (!editor) return;
+    const { doc, selection } = editor.state;
+    let paraIndex = 0;
+    let found = false;
+    doc.forEach((node: any, offset: number) => {
+      if (found) return;
+      paraIndex += 1;
+      // 光标在节点范围内 (含起点; 与下一节点起点重合时归属下一段)
+      if (offset + node.nodeSize > selection.from) {
+        found = true;
+      }
+    });
+    if (found) {
+      openCommentPanel(paraIndex, getParaText(doc, paraIndex));
+    }
+  }, [editor, getParaText, openCommentPanel]);
+
+  // ---- 批注数据注入 CommentHighlight storage + 触发重算 ----
+  const commentExt = editor?.extensionManager.extensions.find(
+    (e) => e.name === 'commentHighlight'
+  );
+  useEffect(() => {
+    if (!editor || !commentExt) return;
+    commentExt.storage.comments = comments;
+    commentExt.storage.onOpen = openCommentPanel;
+    editor.view.dispatch(editor.view.state.tr.setMeta('commentRefresh', true));
+  }, [comments, openCommentPanel, editor, commentExt]);
 
   // ---- 初始内容加载: 将后端已保存内容写入 Yjs (打开文档即显示) ----
   // 条件:
@@ -458,9 +663,20 @@ export function CollaborativeEditor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editor, ydoc, defaultAuthor]);
 
+  // ---- 批注面板渲染数据 ----
+  const paraNow =
+    editor && commentPanel
+      ? getParaText(editor.state.doc, commentPanel.paraIndex)
+      : '';
+  const drifted =
+    !!commentPanel && paraNow.trim() !== commentPanel.snapshot.trim();
+  const panelComments = commentPanel
+    ? comments.filter((c) => c.para_index === commentPanel.paraIndex)
+    : [];
+
   return (
     <div
-      className={`flex flex-col bg-white rounded-lg shadow-sm overflow-hidden ${className}`}
+      className={`relative flex flex-col bg-white rounded-lg shadow-sm overflow-hidden ${className}`}
     >
       {/* 格式化工具栏 (StarterKit 命令, 无新增扩展) */}
       {editor && (
@@ -615,11 +831,97 @@ export function CollaborativeEditor({
                 active={editor.isActive('code')}
                 onClick={() => editor.chain().focus().toggleCode().run()}
               />
+              <span className="w-px h-4 bg-white/15 mx-0.5" />
+              <BubbleBtn
+                label="批注"
+                title="添加段落批注"
+                onClick={openCommentForSelection}
+              />
             </div>
           </BubbleMenu>
         )}
         <EditorContent editor={editor} />
       </div>
+
+      {/* 段落批注面板 */}
+      {commentPanel && (
+        <div className="absolute top-14 right-3 z-20 w-80 bg-white rounded-lg border border-slate-200 shadow-xl flex flex-col max-h-[70%]">
+          <div className="flex items-center justify-between px-3 py-2 border-b border-slate-200">
+            <span className="panel-title text-xs">
+              批注 · 第 {commentPanel.paraIndex} 段
+            </span>
+            <button
+              type="button"
+              title="关闭批注面板"
+              onClick={() => setCommentPanel(null)}
+              className="w-6 h-6 rounded flex items-center justify-center text-sm text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+            >
+              ×
+            </button>
+          </div>
+
+          <div className="px-3 py-2 border-b border-slate-200 bg-slate-50/50">
+            <p className="text-[10px] text-slate-400 mb-1">锚定段落</p>
+            <p className="text-xs text-slate-600 leading-relaxed line-clamp-2">
+              {commentPanel.snapshot || '（空段落）'}
+            </p>
+            {drifted && (
+              <p className="text-[10px] text-amber-600 mt-1">
+                段落内容已修改, 批注仍保留
+              </p>
+            )}
+          </div>
+
+          <div className="flex-1 overflow-y-auto slim-scroll px-3 py-2 space-y-2 min-h-0">
+            {panelComments.length === 0 ? (
+              <p className="text-xs text-slate-400 py-1">暂无批注, 在下方添加</p>
+            ) : (
+              panelComments.map((c) => (
+                <div
+                  key={c.id}
+                  className="border border-slate-100 rounded-md p-2 bg-slate-50/60"
+                >
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-[11px] font-medium text-ink">
+                      {c.author}
+                    </span>
+                    <span className="text-[10px] text-slate-400">
+                      {formatTime(c.created_at)}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-700 leading-relaxed whitespace-pre-wrap">
+                    {c.content}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => void handleDeleteComment(c.id)}
+                    className="text-[10px] text-slate-400 hover:text-red-500 mt-1"
+                  >
+                    删除
+                  </button>
+                </div>
+              ))
+            )}
+          </div>
+
+          <div className="px-3 py-2 border-t border-slate-200">
+            <textarea
+              value={commentDraft}
+              onChange={(e) => setCommentDraft(e.target.value)}
+              placeholder="写下批注, 与同门交流..."
+              className="w-full text-xs border border-slate-200 rounded-md p-2 h-16 resize-none focus:outline-none focus:ring-2 focus:ring-accent/30"
+            />
+            <button
+              type="button"
+              disabled={!commentDraft.trim()}
+              onClick={() => void handleAddComment()}
+              className="mt-1.5 w-full text-xs px-3 py-1.5 rounded-md bg-ink text-white hover:bg-ink-hover disabled:opacity-40 transition-colors"
+            >
+              添加批注
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

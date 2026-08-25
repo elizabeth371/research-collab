@@ -388,3 +388,48 @@ class PermissionConfig(Base):
 
     def __repr__(self) -> str:
         return f"<PermissionConfig {self.doc_id} mode={self.collab_mode}>"
+
+
+# ===========================================================================
+# 7. 段落批注表
+# ===========================================================================
+class Comment(Base):
+    """
+    段落级批注表: 师门共研核心能力。
+
+    批注锚定到文档中的段落:
+    - para_index: 段落序号 (1 起, 按 ProseMirror 顶层块级节点顺序)
+    - para_snapshot: 锚定段落的文本快照, 前端展示时校验段落是否仍与批注时
+      一致 (防段落漂移: 若文本已变, 提示"段落已修改", 批注仍保留可追溯)
+    """
+
+    __tablename__ = "comments"
+    __table_args__ = (Index("idx_comments_doc", "doc_id"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID_TYPE, primary_key=True, default=_gen_uuid
+    )
+    doc_id: Mapped[uuid.UUID] = mapped_column(
+        UUID_TYPE,
+        ForeignKey("documents.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    para_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    para_snapshot: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    author: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"<Comment {self.doc_id.hex[:8]} #{self.para_index}: "
+            f"{self.content[:30]}>"
+        )

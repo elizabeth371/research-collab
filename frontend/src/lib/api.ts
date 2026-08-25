@@ -271,6 +271,49 @@ export const exportDocument = async (docId: string): Promise<string> => {
   return await res.text();
 };
 
+// ---------------------------------------------------------------------------
+// 段落批注 (师门共研)
+// ---------------------------------------------------------------------------
+export interface CommentItem {
+  id: string;
+  doc_id: string;
+  para_index: number;
+  para_snapshot: string;
+  author: string;
+  content: string;
+  created_at: string;
+}
+
+/** 列出文档全部批注 */
+export const getComments = (docId: string) =>
+  request<CommentItem[]>(`/documents/${docId}/comments`);
+
+/** 新增批注 (锚定段落序号 + 段落文本快照) */
+export const addComment = (
+  docId: string,
+  payload: {
+    paraIndex: number;
+    paraSnapshot: string;
+    author: string;
+    content: string;
+  }
+) =>
+  request<CommentItem>(`/documents/${docId}/comments`, {
+    method: 'POST',
+    body: JSON.stringify({
+      para_index: payload.paraIndex,
+      para_snapshot: payload.paraSnapshot,
+      author: payload.author,
+      content: payload.content,
+    }),
+  });
+
+/** 删除批注 */
+export const deleteComment = (docId: string, commentId: string) =>
+  request<void>(`/documents/${docId}/comments/${commentId}`, {
+    method: 'DELETE',
+  });
+
 /** 文档级水印检测: 检测全文并持久化 WatermarkRecord + 溯源链日志 */
 export const detectDocumentWatermark = async (
   docId: string

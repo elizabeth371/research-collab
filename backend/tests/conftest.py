@@ -51,6 +51,7 @@ def _cleanup_test_docs():
             for table in (
                 models.OpLog,
                 models.WatermarkRecord,
+                models.Comment,
                 models.DocumentCollaborator,
                 models.PermissionConfig,
             ):

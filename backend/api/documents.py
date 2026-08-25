@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_db
 from models import (
+    Comment,
     Document,
     DocumentCollaborator,
     OpLog,
@@ -212,6 +213,7 @@ async def delete_document(
     # NOT NULL constraint failed (op_logs.doc_id), 导致删除 500。
     await db.execute(delete(OpLog).where(OpLog.doc_id == doc_id))
     await db.execute(delete(WatermarkRecord).where(WatermarkRecord.doc_id == doc_id))
+    await db.execute(delete(Comment).where(Comment.doc_id == doc_id))
     await db.execute(
         delete(DocumentCollaborator).where(
             DocumentCollaborator.document_id == doc_id

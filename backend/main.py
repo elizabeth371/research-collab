@@ -17,6 +17,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import select
 
 from api import agents as agents_api
+from api import comments as comments_api
 from api import documents as documents_api
 from api import literature as literature_api
 from api import watermark as watermark_api
@@ -201,6 +202,7 @@ app.add_middleware(
 # 注册 REST API 路由
 # ---------------------------------------------------------------------------
 app.include_router(documents_api.router)
+app.include_router(comments_api.router)
 app.include_router(agents_api.router)
 app.include_router(watermark_api.router)
 app.include_router(literature_api.router)

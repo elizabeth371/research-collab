@@ -220,3 +220,25 @@ body {
 .slim-scroll::-webkit-scrollbar-thumb:hover {
   background: #94a3b8;
 }
+
+/* 段落批注徽章 (CommentHighlight widget) */
+.comment-badge {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 8px;
+  padding: 0 7px;
+  font-size: 10px;
+  line-height: 18px;
+  font-weight: 500;
+  color: var(--color-accent);
+  background: var(--color-accent-light);
+  border: 1px solid rgba(29, 78, 216, 0.25);
+  border-radius: 999px;
+  cursor: pointer;
+  vertical-align: 2px;
+  user-select: none;
+  transition: background 0.15s;
+}
+.comment-badge:hover {
+  background: rgba(29, 78, 216, 0.14);
+}
