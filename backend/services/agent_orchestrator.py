@@ -149,6 +149,10 @@ class State(TypedDict, total=False):
     messages: List[Dict[str, Any]]
     status: str
     metadata: Dict[str, Any]
+    # 审稿红牌 -> 自动重写闭环
+    review_result: Optional[Dict[str, Any]]  # 最近一轮 AcademicReviewEngine 结果
+    review_rounds: int                       # 已执行的修订轮数
+    rewrite_log: List[Dict[str, Any]]        # 每轮修订的变更清单 (供前端对比)
 
 
 # ---------------------------------------------------------------------------
@@ -255,13 +259,13 @@ async def research_agent_node(state: State) -> Dict[str, Any]:
 
 async def writer_agent_node(state: State) -> Dict[str, Any]:
     """
-    WriterAgent 节点 (论文写作):
-    - 接收 research_output + writing_task
-    - 优先调用 LLM (OpenAI 兼容协议) 生成真实学术草稿;
-      未配置 API Key / 调用失败时降级到模拟草稿模板 (离线可演示)
-    - 输出 draft (将经 StreamBufferService 以 author=ai-agent 写入 Yjs)
+    WriterAgent 节点 (论文写作 / 审稿修订):
+    - 首次起草: 接收 research_output + writing_task, 优先调用 LLM
+      (OpenAI 兼容协议) 生成真实学术草稿; 无 Key / 失败降级到模拟模板;
+    - 审稿修订 (supervisor 红牌 > 0 后再次进入): 按红牌问题执行确定性
+      规则重写 (RewriteEngine), 不重新生成全文, 输出修订版草稿;
 
-    关键: 生成结果将通过 StreamBufferService 原子写入 Yjs,
+    关键: 生成结果将通过 StreamBufferService 以 author=ai-agent 写入 Yjs,
           且前景字体为蓝色 (作者属性 author=ai-agent)。
     """
     print(f"[WriterAgent] 基于研究结果起草: {state.get('writing_task', '')}")
@@ -272,6 +276,49 @@ async def writer_agent_node(state: State) -> Dict[str, Any]:
     task = (state.get("writing_task") or "").strip()
     engine = "rule"
     draft: Optional[str] = None
+
+    # ---- 0. 审稿修订模式: supervisor 红牌 -> 按规则重写既有草稿 ----
+    review = state.get("review_result") or {}
+    if review.get("red_cards", 0) > 0 and (state.get("draft") or "").strip():
+        from services.rewrite_engine import RewriteEngine
+
+        prev_draft = state["draft"]
+        rounds = state.get("review_rounds", 0) or 0
+        result = RewriteEngine.rewrite_document(prev_draft, review)
+        new_draft = result["text"]
+        log_entry = {
+            "round": rounds + 1,
+            "red_before": result["red_cards_before"],
+            "red_after": result["red_cards_after"],
+            "changes": result["changes"],
+        }
+        if result["red_cards_after"] == 0:
+            status_note = "复检无红牌，修订完成"
+        else:
+            status_note = f"复检仍有 {result['red_cards_after']} 项红牌"
+        fix_summary = "；".join(
+            f"{c['type']}({c['after']})" for c in result["changes"]
+        ) or "无"
+        content = (
+            f"【审稿修订 v{rounds + 1} · 规则重写】"
+            f"修复红牌 {result['red_cards_before']} 项：{fix_summary}；{status_note}\n"
+            f"{new_draft}"
+        )
+        return {
+            "draft": new_draft,
+            "review_rounds": rounds + 1,
+            "rewrite_log": [*(state.get("rewrite_log") or []), log_entry],
+            "status": AgentStatus.COMPLETED.value,
+            "metadata": {**(state.get("metadata") or {}), "writer_engine": "rewrite-rule"},
+            "messages": [
+                *state.get("messages", []),
+                {
+                    "role": "agent",
+                    "agent": AgentType.WRITER.value,
+                    "content": content,
+                },
+            ],
+        }
 
     # ---- 1. LLM 真实生成 (可插拔, 无 key 自动跳过) ----
     try:
@@ -350,6 +397,9 @@ async def supervisor_agent_node(state: State) -> Dict[str, Any]:
         "supervisor_feedback": feedback,
         "final_output": draft,
         "status": AgentStatus.COMPLETED.value,
+        "review_result": review,  # 供 writer 修订模式与 should_retry 使用
+        "review_rounds": state.get("review_rounds", 0) or 0,
+        "rewrite_log": state.get("rewrite_log", []) or [],
         "messages": [
             *state.get("messages", []),
             {
@@ -364,14 +414,21 @@ async def supervisor_agent_node(state: State) -> Dict[str, Any]:
 # ---------------------------------------------------------------------------
 # 路由函数 (条件边)
 # ---------------------------------------------------------------------------
+# 审稿红牌自动重写: 单轮重写最多迭代轮数 (防死循环)
+_MAX_REWRITE_ROUNDS = 2
+
+
 def should_retry(state: State) -> Literal["writer", "supervisor"]:
     """
     监督决策路由:
-    - 若反馈包含 "重写"/"驳回" 关键字 => 回到 WriterAgent
-    - 否则 => 完成 (图结束)
+    - 草稿仍存在红牌问题 且 修订轮数未达上限 => 回到 WriterAgent 按红牌重写
+    - 无红牌 / 已达上限 / 空文档无法重写 => 结束
     """
-    feedback = state.get("supervisor_feedback", "")
-    if any(kw in feedback for kw in ("重写", "驳回", "打回")):
+    review = state.get("review_result") or {}
+    red = review.get("red_cards", 0) or 0
+    rounds = state.get("review_rounds", 0) or 0
+    draft = (state.get("draft") or "").strip()
+    if red > 0 and rounds < _MAX_REWRITE_ROUNDS and draft:
         return "writer"
     return "supervisor"  # 默认结束
 
@@ -396,11 +453,21 @@ def build_agent_graph() -> Any:
         class _FallbackGraph:
             async def ainvoke(self, inputs: dict) -> dict:
                 """模拟图执行 (无 langgraph 时的降级)"""
-                state: State = {**inputs, "messages": [], "status": "idle"}
+                state: State = {
+                    **inputs,
+                    "messages": [],
+                    "status": "idle",
+                    "review_rounds": 0,
+                    "rewrite_log": [],
+                }
                 # 顺序执行三个节点
                 state.update(await research_agent_node(state))
                 state.update(await writer_agent_node(state))
                 state.update(await supervisor_agent_node(state))
+                # 审稿红牌 -> 自动重写闭环 (与 LangGraph 条件边语义一致)
+                while should_retry(state) == "writer":
+                    state.update(await writer_agent_node(state))
+                    state.update(await supervisor_agent_node(state))
                 state["status"] = AgentStatus.COMPLETED.value
                 return state
 
@@ -500,6 +567,8 @@ class OrchestratorService:
                 "messages": prev_messages,
                 "status": AgentStatus.RUNNING.value,
                 "metadata": {"model": "deepseek-v3"},  # TODO: 可配置
+                "review_rounds": 0,
+                "rewrite_log": [],
             }
 
             self._sessions[key] = {

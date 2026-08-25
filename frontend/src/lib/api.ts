@@ -7,6 +7,8 @@ import type {
   PolishResult,
   ReviewIssue,
   ReviewResult,
+  RewriteChange,
+  RewriteResult,
 } from '@shared/types';
 
 /**
@@ -227,6 +229,47 @@ export const reviewDocument = async (
     redCards: raw.red_cards,
     yellowCards: raw.yellow_cards,
     stats: raw.stats,
+  };
+};
+
+/** 后端 /api/agents/rewrite 的原始响应 (snake_case) */
+interface BackendRewriteResponse {
+  doc_id: string;
+  rewritten: string;
+  changes: Array<{
+    type: RewriteChange['type'];
+    before: string;
+    after: string;
+    para_index?: number | null;
+  }>;
+  red_cards_before: number;
+  red_cards_after: number;
+  passed_after: boolean;
+  engine: RewriteResult['engine'];
+}
+
+/** 审稿红牌 -> 自动重写: 对文档当前全文执行规则修复并返回前后对比 */
+export const rewriteDocument = async (
+  docId: string,
+  text?: string
+): Promise<RewriteResult> => {
+  const raw = await request<BackendRewriteResponse>('/agents/rewrite', {
+    method: 'POST',
+    body: JSON.stringify(text ? { doc_id: docId, text } : { doc_id: docId }),
+  });
+  return {
+    docId: raw.doc_id,
+    rewritten: raw.rewritten,
+    changes: raw.changes.map((c) => ({
+      type: c.type,
+      before: c.before,
+      after: c.after,
+      paraIndex: c.para_index ?? null,
+    })),
+    redCardsBefore: raw.red_cards_before,
+    redCardsAfter: raw.red_cards_after,
+    passedAfter: raw.passed_after,
+    engine: raw.engine,
   };
 };
 

@@ -53,6 +53,14 @@ class AcademicReviewEngine:
     DOC_TYPE_TAGS = ("[J]", "[C]", "[M]", "[D]", "[R]", "[S]", "[P]", "[EB/OL]")
     CITATION_RE = re.compile(r"\[(\d{1,3})\](?![0-9])")
     REF_SECTION_RE = re.compile(r"参考文献|References", re.IGNORECASE)
+    # 编辑器 markdown 持久化会把 [n] 转义为 \[n\] (prosemirror-markdown),
+    # 审查前需归一化回普通括号, 否则引用编号/文献条目无法识别。
+    ESCAPED_BRACKET_RE = re.compile(r"\\\[|\\\]")
+
+    @staticmethod
+    def _normalize(text: str) -> str:
+        """把转义方括号 \[ \] 还原为普通 [ ] (幂等, 仅影响引用分析)"""
+        return AcademicReviewEngine.ESCAPED_BRACKET_RE.sub(lambda m: m.group(0)[-1], text)
 
     # 疑似断言词: 句段中出现且段内无引用编号 -> 黄牌 (论据不足)
     ASSERTION_WORDS = (
@@ -119,6 +127,7 @@ class AcademicReviewEngine:
         Returns:
             ReviewDocumentResult: {passed, issues, red_cards, yellow_cards, stats}
         """
+        text = cls._normalize(text)
         issues: List[ReviewIssue] = []
         stats = cls._collect_stats(text)
 
@@ -272,6 +281,7 @@ class AcademicReviewEngine:
     # ------------------------------------------------------------------
     @classmethod
     def _collect_stats(cls, text: str) -> dict:
+        text = cls._normalize(text)
         paragraphs = [p.strip() for p in text.split("\n") if p.strip()]
         # 正文引用编号: 仅统计"参考文献"章节之前的部分,
         # 避免文献列表行首的 [n] 被误当作正文引用而掩盖跳号。

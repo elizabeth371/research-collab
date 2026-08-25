@@ -160,6 +160,27 @@ export interface ReviewResult {
   stats: Record<string, unknown>;
 }
 
+/** 一条审稿重写变更 (红牌修复动作, 供前后对比展示) */
+export interface RewriteChange {
+  type: 'citation' | 'references' | 'length';
+  before: string;
+  after: string;
+  /** 全文级修复为 null */
+  paraIndex?: number | null;
+}
+
+/** 审稿重写结果 (红牌 -> 规则自动修复) */
+export interface RewriteResult {
+  docId: string;
+  rewritten: string;
+  changes: RewriteChange[];
+  redCardsBefore: number;
+  redCardsAfter: number;
+  passedAfter: boolean;
+  /** 实际生效模式: 'rule' (规则重写) / 'noop' (无红牌未改动) */
+  engine: 'rule' | 'noop';
+}
+
 // ==================== API 通用响应 ====================
 
 export interface ApiResponse<T = unknown> {

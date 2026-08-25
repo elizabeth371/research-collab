@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import type * as Y from 'yjs';
-import type { AgentMessage, AgentStatus, ReviewResult } from '@shared/types';
+import type { AgentMessage, AgentStatus, ReviewResult, RewriteResult } from '@shared/types';
 import { AgentStatus as AgentStatusEnum, AgentType } from '@shared/types';
-import { triggerAgent, getAgentMessages, reviewDocument, polishText } from '../../lib/api';
+import { triggerAgent, getAgentMessages, reviewDocument, polishText, rewriteDocument } from '../../lib/api';
 import { appendAiText, AUTHOR_AI } from '../../lib/yjs';
+import { docToMarkdown } from '../../lib/markdown';
 import { getCollabSession } from '../../lib/collab';
 
 /**
@@ -97,6 +98,9 @@ export function AgentPanel({ docId, username, ydoc }: AgentPanelProps) {
   const [reviewing, setReviewing] = useState(false);
   const [polishingPara, setPolishingPara] = useState<number | null>(null);
   const [reviewMsg, setReviewMsg] = useState<string | null>(null);
+  // ---- 审稿红牌 -> 自动重写 (前后对比 + 应用) ----
+  const [rewriting, setRewriting] = useState(false);
+  const [rewriteResult, setRewriteResult] = useState<RewriteResult | null>(null);
 
   const ydocRef = useRef(ydoc);
   ydocRef.current = ydoc;
@@ -109,6 +113,7 @@ export function AgentPanel({ docId, username, ydoc }: AgentPanelProps) {
     sessionIdRef.current = sessionCache.get(docId) ?? null;
     setReview(null);
     setReviewMsg(null);
+    setRewriteResult(null);
   }, [docId]);
 
   /** 追加消息到线程 (同步写回缓存, 按 id 去重) */
@@ -173,7 +178,9 @@ export function AgentPanel({ docId, username, ydoc }: AgentPanelProps) {
       );
 
       // Writer 产出: 以 AI 作者身份写入 Yjs 文档 (蓝色高亮)
-      const writerMsg = msgs.find((m) => m.agentType === AgentType.WRITER);
+      // 审稿红牌触发自动重写时会出现多条 Writer 消息, 取最后一条 (最终修订版)
+      const writerMsgs = msgs.filter((m) => m.agentType === AgentType.WRITER);
+      const writerMsg = writerMsgs[writerMsgs.length - 1];
       if (writerMsg?.content) {
         appendAiText(getCollabSession(docId).editor, ydocRef.current, writerMsg.content);
       }
@@ -191,6 +198,7 @@ export function AgentPanel({ docId, username, ydoc }: AgentPanelProps) {
     if (!docId || reviewing) return;
     setReviewing(true);
     setReviewMsg(null);
+    setRewriteResult(null);
     try {
       const result = await reviewDocument(docId);
       setReview(result);
@@ -268,6 +276,91 @@ export function AgentPanel({ docId, username, ydoc }: AgentPanelProps) {
     } finally {
       setPolishingPara(null);
     }
+  };
+
+  /** 审稿红牌 -> 自动重写: 后端按红牌问题规则修复, 返回前后对比 */
+  const handleRewrite = async () => {
+    if (!docId || rewriting) return;
+    setRewriting(true);
+    setReviewMsg(null);
+    try {
+      const editor = getCollabSession(docId).editor;
+      // 传当前编辑器内容 (含未落库的编辑), 后端优先使用
+      const text = editor ? docToMarkdown(editor.state.doc) : undefined;
+      const result = await rewriteDocument(docId, text);
+      setRewriteResult(result);
+      if (result.engine === 'noop') {
+        setReviewMsg('✅ 当前文档无红牌问题，无需重写');
+        return;
+      }
+      appendThread([
+        {
+          id: `rewrite-${Date.now()}`,
+          role: 'agent',
+          agentType: AgentType.SUPERVISOR,
+          content: `🔄 审稿自动重写完成：红牌 ${result.redCardsBefore} → ${result.redCardsAfter} 项${
+            result.passedAfter ? '，已全部修复' : '，仍有剩余（可人工修正）'
+          }。下方可查看变更明细并应用到文档。`,
+          createdAt: new Date().toISOString(),
+        },
+      ]);
+    } catch (e) {
+      setReviewMsg(e instanceof Error ? e.message : '自动重写失败');
+    } finally {
+      setRewriting(false);
+    }
+  };
+
+  /** 将重写后的 Markdown 解析为带 author=ai 标记的 Tiptap 内容 (标题 + 段落) */
+  const markdownToAuthorContent = (md: string, author: string) => {
+    const blocks: unknown[] = [];
+    let paraLines: string[] = [];
+    const flush = () => {
+      if (paraLines.length > 0) {
+        blocks.push({
+          type: 'paragraph',
+          content: [
+            { type: 'text', text: paraLines.join('\n'), marks: [{ type: 'author', attrs: { author } }] },
+          ],
+        });
+        paraLines = [];
+      }
+    };
+    for (const line of md.split('\n')) {
+      const head = line.match(/^(#{1,6})\s+(.+)$/);
+      if (head) {
+        flush();
+        blocks.push({
+          type: 'heading',
+          attrs: { level: head[1].length },
+          content: [
+            { type: 'text', text: head[2], marks: [{ type: 'author', attrs: { author } }] },
+          ],
+        });
+      } else if (line.trim()) {
+        paraLines.push(line);
+      } else {
+        flush();
+      }
+    }
+    flush();
+    return blocks;
+  };
+
+  /** 应用重写版本: 整篇替换为 AI 蓝色标记内容 */
+  const handleApplyRewrite = () => {
+    if (!rewriteResult) return;
+    const editor = getCollabSession(docId).editor;
+    if (!editor) return;
+    editor.commands.setContent(
+      markdownToAuthorContent(rewriteResult.rewritten, AUTHOR_AI),
+      true
+    );
+    setReviewMsg(
+      '✅ 重写版本已应用到文档（AI 蓝色标记），可重新审稿复查'
+    );
+    setRewriteResult(null);
+    setReview(null);
   };
 
   return (
@@ -366,6 +459,17 @@ export function AgentPanel({ docId, username, ydoc }: AgentPanelProps) {
                 </div>
               )}
 
+              {/* 红牌 -> 自动重写 (由 Supervisor 判定, 一键修复红牌问题) */}
+              {review.redCards > 0 && !rewriteResult && (
+                <button
+                  onClick={() => void handleRewrite()}
+                  disabled={rewriting}
+                  className="mt-2 w-full text-[11px] font-medium px-3 py-2 rounded-lg bg-red-600 text-white hover:bg-red-700 disabled:opacity-50 transition-colors"
+                >
+                  {rewriting ? '🔄 重写中，请稍候...' : '🔄 自动重写（一键修复全部红牌）'}
+                </button>
+              )}
+
               <div className="mt-2 space-y-2 max-h-56 overflow-y-auto slim-scroll">
                 {review.issues.map((issue, i) => (
                   <div key={i} className={`review-card review-card-${issue.level}`}>
@@ -399,6 +503,50 @@ export function AgentPanel({ docId, username, ydoc }: AgentPanelProps) {
 
               {reviewMsg && (
                 <div className="mt-2 text-[11px] text-slate-500">{reviewMsg}</div>
+              )}
+
+              {/* 重写结果: 变更前后对比 + 新版预览 + 应用到文档 */}
+              {rewriteResult && (
+                <div className="mt-2 rounded-lg border border-emerald-200 bg-white">
+                  <div className="flex items-center justify-between px-2.5 py-1.5 border-b border-slate-100">
+                    <span className="text-[11px] font-medium text-emerald-700">
+                      📝 重写版本 · 红牌 {rewriteResult.redCardsBefore} →{' '}
+                      {rewriteResult.redCardsAfter} 项
+                      {rewriteResult.passedAfter ? ' ✅' : ' ⚠️'}
+                    </span>
+                    <button
+                      onClick={() => setRewriteResult(null)}
+                      className="text-[10px] text-slate-400 hover:text-slate-600"
+                    >
+                      收起
+                    </button>
+                  </div>
+
+                  {rewriteResult.changes.length > 0 && (
+                    <ul className="px-2.5 py-1.5 space-y-1 max-h-24 overflow-y-auto slim-scroll">
+                      {rewriteResult.changes.map((c, i) => (
+                        <li key={i} className="text-[10px] leading-relaxed text-slate-600">
+                          <span className="text-slate-400 line-through">{c.before}</span>
+                          <span className="mx-1 text-emerald-600">→</span>
+                          <span className="text-emerald-700">{c.after}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+
+                  <div className="px-2.5 py-1.5 border-t border-slate-100">
+                    <div className="text-[10px] text-slate-400 mb-1">新版预览</div>
+                    <div className="max-h-32 overflow-y-auto slim-scroll rounded bg-slate-50 p-2 text-[10px] leading-relaxed text-slate-600 whitespace-pre-wrap break-words">
+                      {rewriteResult.rewritten}
+                    </div>
+                    <button
+                      onClick={handleApplyRewrite}
+                      className="mt-2 w-full text-[11px] font-medium px-3 py-1.5 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 transition-colors"
+                    >
+                      ✓ 应用到文档（AI 蓝色标记）
+                    </button>
+                  </div>
+                </div>
               )}
             </>
           )}

@@ -114,6 +114,38 @@ class ReviewResponse(BaseModel):
     stats: dict
 
 
+class RewriteRequest(BaseModel):
+    """审稿重写请求体"""
+
+    doc_id: uuid.UUID
+    text: Optional[str] = Field(
+        default=None,
+        max_length=50000,
+        description="可选: 待重写文本; 缺省时读取文档当前内容",
+    )
+
+
+class RewriteChangeOut(BaseModel):
+    """一条重写变更"""
+
+    type: str    # citation / references / length
+    before: str
+    after: str
+    para_index: Optional[int] = None
+
+
+class RewriteResponse(BaseModel):
+    """审稿重写结果"""
+
+    doc_id: str
+    rewritten: str
+    changes: List[RewriteChangeOut]
+    red_cards_before: int
+    red_cards_after: int
+    passed_after: bool
+    engine: str    # rule (规则重写) / noop (无红牌未改动)
+
+
 # ---------------------------------------------------------------------------
 # API 端点
 # ---------------------------------------------------------------------------
@@ -257,4 +289,44 @@ async def review_document(
         "red_cards": result["red_cards"],
         "yellow_cards": result["yellow_cards"],
         "stats": result["stats"],
+    }
+
+
+@router.post("/rewrite", response_model=RewriteResponse)
+async def rewrite_document(
+    payload: RewriteRequest,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """
+    审稿红牌 -> 自动重写: 对文档全文 (或传入文本) 执行红牌问题规则重写。
+
+    与审稿检查同源: 先审稿, 红牌 > 0 时按问题类型确定性修复
+    (引用编号重排 / 补齐参考文献 / 篇幅扩充), 重写后复检输出前后对比。
+    """
+    doc = await _ensure_doc_exists(db, payload.doc_id)
+    text = (payload.text or "").strip() or (doc.content or "")
+
+    from services.rewrite_engine import RewriteEngine
+
+    review = AcademicReviewEngine.review_document(text)
+    if review["red_cards"] == 0:
+        return {
+            "doc_id": str(payload.doc_id),
+            "rewritten": text,
+            "changes": [],
+            "red_cards_before": 0,
+            "red_cards_after": 0,
+            "passed_after": True,
+            "engine": "noop",
+        }
+
+    result = RewriteEngine.rewrite_document(text, review)
+    return {
+        "doc_id": str(payload.doc_id),
+        "rewritten": result["text"],
+        "changes": result["changes"],
+        "red_cards_before": result["red_cards_before"],
+        "red_cards_after": result["red_cards_after"],
+        "passed_after": result["passed_after"],
+        "engine": result["engine"],
     }
