@@ -1,6 +1,7 @@
 import type {
   Document,
   LLMGenerateResult,
+  RobustnessResult,
   WatermarkDetectionResult,
   AgentMessage,
   AgentType,
@@ -499,6 +500,20 @@ export const generateWatermarkedText = async (
     },
   };
 };
+
+/**
+ * 水印对抗鲁棒性实验 (POST /api/watermark/robustness)
+ * 对已注入水印的文本施加攻击矩阵 (删除/截断/同义替换/噪声/乱序/可选回译),
+ * 返回基线 + 各攻击后的 z 统计量与检出判定, 供论文实验表与面板可视化。
+ */
+export const runRobustnessTest = async (
+  text: string,
+  includeTranslation = false
+): Promise<RobustnessResult> =>
+  request<RobustnessResult>('/watermark/robustness', {
+    method: 'POST',
+    body: JSON.stringify({ text, include_translation: includeTranslation }),
+  });
 
 /** 水印记录条目 (后端 WatermarkRecord, snake_case) */
 export interface WatermarkRecordItem {

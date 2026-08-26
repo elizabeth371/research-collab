@@ -1,10 +1,15 @@
 import { useCallback, useEffect, useState } from 'react';
-import type { LLMGenerateResult, WatermarkDetectionResult } from '@shared/types';
+import type {
+  LLMGenerateResult,
+  RobustnessResult,
+  WatermarkDetectionResult,
+} from '@shared/types';
 import {
   detectDocumentWatermark,
   detectWatermark,
   generateWatermarkedText,
   getWatermarkRecords,
+  runRobustnessTest,
   type WatermarkRecordItem,
 } from '../../lib/api';
 import { appendAiText } from '../../lib/yjs';
@@ -18,9 +23,11 @@ import { getCollabSession } from '../../lib/collab';
  *     检测动作会写入 WatermarkRecord 与溯源链日志 (可追溯)
  *  2. AI 写作 + 水印注入演示: 真实 LLM 生成带水印文本并立即自检,
  *     可一键插入文档 (蓝色 AI 标记) —— 步骤 9/10 闭环
- *  3. 支持粘贴任意文本进行检测
- *  4. 可视化置信度 (进度条 + 判定徽标 + z 值/绿名单占比统计量)
- *  5. 展示该文档的水印检测历史记录
+ *  3. 对抗鲁棒性实验: 对带水印文本施加攻击矩阵 (删除/截断/同义改写/
+ *     噪声/乱序/可选回译), 展示检出衰减 —— 步骤 11 (论文实验数据)
+ *  4. 支持粘贴任意文本进行检测
+ *  5. 可视化置信度 (进度条 + 判定徽标 + z 值/绿名单占比统计量)
+ *  6. 展示该文档的水印检测历史记录
  */
 interface WatermarkPanelProps {
   docId: string;
@@ -42,6 +49,12 @@ export function WatermarkPanel({ docId, getDocText }: WatermarkPanelProps) {
   const [generating, setGenerating] = useState(false);
   const [genError, setGenError] = useState<string | null>(null);
   const [inserted, setInserted] = useState(false);
+
+  // ---- 对抗鲁棒性实验状态 (步骤 11) ----
+  const [robResult, setRobResult] = useState<RobustnessResult | null>(null);
+  const [robLoading, setRobLoading] = useState(false);
+  const [robError, setRobError] = useState<string | null>(null);
+  const [robIncludeTranslation, setRobIncludeTranslation] = useState(false);
 
   const refreshRecords = useCallback(async () => {
     try {
@@ -112,6 +125,25 @@ export function WatermarkPanel({ docId, getDocText }: WatermarkPanelProps) {
     const ok = appendAiText(session.editor, session.ydoc, genResult.text);
     if (ok) {
       setInserted(true);
+    }
+  };
+
+  /** 对抗鲁棒性实验: 对指定文本施加攻击矩阵, 度量检测衰减 (步骤 11) */
+  const runRobustness = async (text: string) => {
+    if (!text.trim()) {
+      setRobError('没有可测试的文本');
+      return;
+    }
+    setRobError(null);
+    setRobResult(null);
+    setRobLoading(true);
+    try {
+      const r = await runRobustnessTest(text, robIncludeTranslation);
+      setRobResult(r);
+    } catch (e) {
+      setRobError(e instanceof Error ? e.message : '鲁棒性测试失败');
+    } finally {
+      setRobLoading(false);
     }
   };
 
@@ -191,6 +223,143 @@ export function WatermarkPanel({ docId, getDocText }: WatermarkPanelProps) {
             >
               {inserted ? '✅ 已插入文档末尾 (蓝色 AI 标记)' : '插入到文档末尾'}
             </button>
+          </div>
+        )}
+      </div>
+
+      {/* 对抗鲁棒性实验 (步骤 11) */}
+      <div className="rounded-lg border border-amber-100 bg-amber-50/40 p-3 space-y-2">
+        <div className="flex items-center justify-between">
+          <h4 className="text-xs font-semibold text-amber-800">
+            🧪 水印对抗鲁棒性实验
+          </h4>
+          <span className="text-[10px] text-amber-500">攻击矩阵 · 论文实验数据</span>
+        </div>
+        <p className="text-[10px] text-amber-700/70 leading-relaxed">
+          对带水印文本施加 6 类内容攻击（随机删除 / 截断 / 同义改写 / 噪声 /
+          局部乱序 / 可选机器翻译回译），度量 z 统计量衰减与检出率，生成论文实验表。
+        </p>
+        <div className="grid grid-cols-1 gap-1.5">
+          <button
+            onClick={() => void runRobustness(getDocText())}
+            disabled={robLoading}
+            className="w-full text-[11px] font-medium py-1.5 rounded-md bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+          >
+            {robLoading ? '攻击矩阵计算中...' : '对当前文档全文运行攻击矩阵'}
+          </button>
+          {genResult && (
+            <button
+              onClick={() => void runRobustness(genResult.text)}
+              disabled={robLoading}
+              className="w-full text-[11px] font-medium py-1.5 rounded-md border border-amber-300 text-amber-700 bg-amber-50 hover:bg-amber-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            >
+              对刚生成的带水印文本运行
+            </button>
+          )}
+          <label className="flex items-center gap-1.5 text-[10px] text-amber-700/80 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={robIncludeTranslation}
+              onChange={(e) => setRobIncludeTranslation(e.target.checked)}
+              className="accent-amber-600"
+            />
+            包含机器翻译回译攻击（真实 DeepSeek zh→en→zh，耗时较长）
+          </label>
+        </div>
+
+        {robError && (
+          <div className="text-[11px] text-red-500 bg-red-50 rounded px-2 py-1.5">
+            {robError}
+          </div>
+        )}
+
+        {robResult && (
+          <div className="bg-white rounded-md border border-amber-100 p-2.5 space-y-2">
+            {/* 汇总 */}
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <span className="text-[11px] font-semibold text-slate-700">
+                {robResult.baseline.is_ai_generated
+                  ? '基线可检出，攻击后统计量衰减如下'
+                  : '基线未检出（文本不含水印或过短），下表为各攻击后判定'}
+              </span>
+              <span className="text-[10px] text-slate-400">
+                {robResult.text_len} 字
+              </span>
+            </div>
+            <div className="grid grid-cols-3 gap-1.5 text-center">
+              <div className="bg-amber-50 rounded border border-amber-100 px-1 py-1.5">
+                <div className="text-[9px] text-amber-500">检出 {robResult.summary.detected}/{robResult.summary.attacked}</div>
+                <div className="text-[11px] font-semibold text-amber-800">
+                  {(robResult.summary.detected_ratio * 100).toFixed(0)}%
+                </div>
+              </div>
+              <div className="bg-amber-50 rounded border border-amber-100 px-1 py-1.5">
+                <div className="text-[9px] text-amber-500">平均 z</div>
+                <div className="text-[11px] font-semibold text-amber-800">
+                  {robResult.summary.avg_z.toFixed(2)}
+                </div>
+              </div>
+              <div className="bg-amber-50 rounded border border-amber-100 px-1 py-1.5">
+                <div className="text-[9px] text-amber-500">最小 z</div>
+                <div className="text-[11px] font-semibold text-amber-800">
+                  {robResult.summary.min_z.toFixed(2)}
+                </div>
+              </div>
+            </div>
+            {robResult.translation_failed && (
+              <div className="text-[10px] text-amber-600 bg-amber-50 rounded px-2 py-1">
+                机器翻译回译未执行成功（未配置 API Key 或调用失败），已跳过该项。
+              </div>
+            )}
+
+            {/* 攻击矩阵表 */}
+            <table className="w-full text-[10px]">
+              <thead>
+                <tr className="text-slate-400 border-b border-slate-100">
+                  <th className="text-left font-medium py-1 pr-1">攻击</th>
+                  <th className="text-right font-medium py-1 px-1">保留率</th>
+                  <th className="text-right font-medium py-1 px-1">z 值</th>
+                  <th className="text-right font-medium py-1 px-1">绿名单</th>
+                  <th className="text-right font-medium py-1 pl-1">判定</th>
+                </tr>
+              </thead>
+              <tbody>
+                {robResult.attacks.map((a) => (
+                  <tr
+                    key={a.name}
+                    className={`border-b border-slate-50 ${
+                      a.name === 'no_attack' ? 'bg-blue-50/50' : ''
+                    }`}
+                  >
+                    <td className="text-left py-1 pr-1 text-slate-600">{a.label}</td>
+                    <td className="text-right py-1 px-1 text-slate-500">
+                      {a.name === 'no_attack' ? '100%' : `${(a.chars_retained * 100).toFixed(0)}%`}
+                    </td>
+                    <td
+                      className={`text-right py-1 px-1 font-medium ${
+                        a.z_score > 4 ? 'text-blue-700' : 'text-green-700'
+                      }`}
+                    >
+                      {a.z_score.toFixed(2)}
+                    </td>
+                    <td className="text-right py-1 px-1 text-slate-500">
+                      {Math.round(a.green_fraction * 100)}%
+                    </td>
+                    <td className="text-right py-1 pl-1">
+                      <span
+                        className={`text-[9px] font-semibold px-1.5 py-0.5 rounded-full ${
+                          a.is_ai_generated
+                            ? 'bg-blue-100 text-blue-700'
+                            : 'bg-green-100 text-green-700'
+                        }`}
+                      >
+                        {a.is_ai_generated ? 'AI' : '人类'}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         )}
       </div>

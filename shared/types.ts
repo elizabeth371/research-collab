@@ -136,6 +136,40 @@ export interface LLMGenerateResult {
   detect: WatermarkDetectionResult;
 }
 
+// ==================== 水印对抗鲁棒性实验 (步骤 11) ====================
+
+/** 单次攻击后的检测结果行 */
+export interface RobustnessAttackRow {
+  name: string;
+  label: string;
+  z_score: number;
+  green_fraction: number;
+  is_ai_generated: boolean;
+  num_tokens_scored: number;
+  chars_after: number;
+  chars_retained: number;
+}
+
+/** 攻击矩阵汇总 (不含基线行) */
+export interface RobustnessSummary {
+  attacked: number;
+  detected: number;
+  detected_ratio: number;
+  avg_z: number;
+  min_z: number;
+  translation_failed: boolean;
+}
+
+/** 鲁棒性实验结果 (POST /watermark/robustness) */
+export interface RobustnessResult {
+  text_len: number;
+  engine: string;
+  baseline: RobustnessAttackRow;
+  attacks: RobustnessAttackRow[];
+  summary: RobustnessSummary;
+  translation_failed: boolean;
+}
+
 // ==================== 写稿人润色 / 审稿人红牌 ====================
 
 /** 一条润色变更 (写稿人 Agent 产出, 供展示与溯源) */

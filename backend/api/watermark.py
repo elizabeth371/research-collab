@@ -139,6 +139,45 @@ async def generate_llm_watermarked(payload: LLMGenerateRequest) -> dict:
     }
 
 
+# ---------------------------------------------------------------------------
+# 水印对抗鲁棒性实验 (步骤 11)
+# ---------------------------------------------------------------------------
+class RobustnessRequest(BaseModel):
+    """鲁棒性攻击矩阵请求体"""
+
+    text: str = Field(..., min_length=1, description="已注入水印的待测文本")
+    include_translation: bool = Field(
+        default=False, description="是否执行真实机器翻译回译攻击 (需 LLM_API_KEY, 耗时较长)"
+    )
+
+
+@router.post("/robustness")
+async def watermark_robustness(payload: RobustnessRequest) -> dict:
+    """
+    对抗鲁棒性实验: 对水印文本施加攻击矩阵并度量检测衰减。
+
+    攻击: 随机删除 10%/30%、截断末尾 20%、中文同义替换、插入噪声、
+    局部乱序, 可选真实机器翻译回译 (zh->en->zh)。
+    返回基线 z 值 + 各攻击后的 z/绿名单占比/检出判定 + 汇总
+    (检出率 / 平均 z / 最小 z), 供论文实验表与前端可视化。
+    """
+    from services.watermark_attack import WatermarkAttackSuite
+
+    suite = WatermarkAttackSuite()
+    llm = None
+    if payload.include_translation:
+        from services.llm_client import llm_client
+
+        llm = llm_client
+    result = await suite.run_async(
+        payload.text,
+        include_translation=payload.include_translation,
+        llm_client=llm,
+    )
+    result["engine"] = "kirchenbauer-v1"
+    return result
+
+
 @router.post("/documents/{doc_id}/detect", response_model=DetectResponse)
 async def detect_document_watermark(
     doc_id: uuid.UUID,
