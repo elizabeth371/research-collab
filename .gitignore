@@ -22,3 +22,7 @@ backend/*_posttest*
 # 密钥文件 (禁止提交)
 .env
 *.env
+
+# 演示脚本输出
+scripts/demo-output/
+demo-output/

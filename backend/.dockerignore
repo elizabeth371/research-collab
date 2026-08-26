@@ -1,0 +1,11 @@
+# 后端构建上下文排除项
+__pycache__/
+*.pyc
+.pytest_cache/
+*.db
+*.db.bak*
+*.db.posttest*
+*_posttest*
+.env
+tests/
+.venv/

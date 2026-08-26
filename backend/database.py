@@ -100,7 +100,7 @@ def _create_engine():
         logger.warning("⚠️  PostgreSQL 连接失败 (%s)，回退到 SQLite", exc)
 
     # 2. 回退: SQLite 文件数据库
-    sqlite_path = "./research_colab.db"
+    sqlite_path = settings.SQLITE_PATH
     engine = create_async_engine(
         f"sqlite+aiosqlite:///{sqlite_path}",
         echo=settings.DEBUG,
@@ -171,7 +171,7 @@ async def init_db() -> None:
         if engine.dialect.name == "postgresql":
             logger.warning("⚠️  PostgreSQL 建表失败 (%s)，回退到 SQLite 文件数据库", exc)
 
-            sqlite_path = "./research_colab.db"
+            sqlite_path = settings.SQLITE_PATH
             new_engine = create_async_engine(
                 f"sqlite+aiosqlite:///{sqlite_path}",
                 echo=settings.DEBUG,

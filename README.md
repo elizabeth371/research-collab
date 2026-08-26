@@ -35,6 +35,25 @@
 - **数据库**: 优先 PostgreSQL(asyncpg), 未安装时自动回退 SQLite(aiosqlite),
   无需任何数据库环境即可运行。
 
+## 功能清单 (开发路线图 1-14 全达成)
+
+| # | 步骤 | 状态 | 说明 |
+|---|------|------|------|
+| 1 | 文档 CRUD + 协同编辑 | ✅ | Tiptap + Yjs CRDT + y-websocket 纯转发, 多光标实时同步 |
+| 2 | 多 Agent 编排 | ✅ | LangGraph 编排 Research / Writer / Supervisor (可切换纯规则) |
+| 3 | 写稿润色 + 审稿红牌 | ✅ | 规则引擎润色 (学术措辞/标点归一) + 红牌/黄牌段落级审稿 |
+| 4 | 哈希链溯源 | ✅ | 每个操作写入 OpLog 并 SHA-256 前后哈希链接, 可逐条校验 |
+| 5 | 编辑器内 AI/人类着色 | ✅ | AI 生成内容蓝色标记, 插入走编辑器事务自动进溯源链 |
+| 6 | 学术审查 | ✅ | 断言词/引用/篇幅/口语化密度分级审稿 |
+| 7 | 文献检索与引用 | ✅ | arXiv API 实时检索 + BibTeX 引用插入 |
+| 8 | 文档导出 | ✅ | Markdown + 溯源元数据头 |
+| 9 | LLM 水印注入 | ✅ | DeepSeek logprobs 重采样 + Kirchenbauer 绿名单 (z>4 检出) |
+| 10 | 编辑器内水印可视化闭环 | ✅ | 生成→自检→插入→全文检测留痕 全链路 |
+| 11 | 对抗鲁棒性实验 | ✅ | 6 类攻击矩阵 + 真实机器翻译回译, 论文实验数据 |
+| 12 | 每文档独立水印密钥 | ✅ | 密钥/γ/δ 可配置可重建, 变更留痕, 跨文档密钥隔离 |
+| 13 | 版权证据包导出 | ✅ | PDF / Markdown / JSON 三格式 + package_hash 完整性校验 |
+| 14 | Docker 部署 + 中文文档 | ✅ | 一键 compose 起前后端, SQLite 数据卷持久化 |
+
 ## 目录结构
 
 ```
@@ -126,6 +145,24 @@ npm run dev
 访问 `http://localhost:5173` (Vite 已配置代理 `/api` 与 `/ws` → `localhost:8000`)。
 
 > 生产构建: `npm run build` (tsc 类型检查 + vite build)。
+
+
+### 3. Docker 一键部署 (推荐演示环境)
+
+```bash
+# 仓库根目录
+docker compose up -d --build
+```
+
+- 前端: `http://localhost` (Nginx 托管静态资源, 自动反代 `/api` 与 `/ws`)
+- 后端健康检查: `http://localhost:8000/api/health`
+- 首次启动自动建表并写入演示文档; SQLite 数据持久化在命名卷 `backend-data`
+- 配置 DeepSeek API Key: 在仓库根 `.env` 写 `LLM_API_KEY=sk-...` 后重启,
+  或 `LLM_API_KEY=sk-... docker compose up -d --build`
+- 详细部署说明见 `docs/DEPLOYMENT.md`
+
+> 前端镜像构建上下文为仓库根目录 (共享类型 `@shared` 位于 frontend 之外),
+> 请勿使用 `docker build frontend/` 单独构建前端。
 
 ## 核心机制说明
 
@@ -243,7 +280,7 @@ SupervisorAgent ──► ResearchAgent ──► WriterAgent ──► Supervis
 
 ```bash
 cd backend
-python -m pytest tests/ -q        # 29 用例: 哈希链/水印/学术审查/API 集成
+python -m pytest tests/ -q        # 129 用例: 哈希链/水印/攻击矩阵/证据包/参数/API 集成
 ```
 
 前端类型检查与构建:
@@ -253,9 +290,10 @@ cd frontend
 npm run build                     # tsc 类型检查 + vite build
 ```
 
-完整验收请按 `docs/测试工作流.md` 分阶段执行（含双标签页协同、Agent、
-水印正/负样本、溯源链篡改检测等 22 项检查），样例数据见 `docs/测试样例.md`，
-历史测试结论见 `docs/测试报告.md`。
+完整验收请按 `docs/测试工作流.md` 分阶段执行, GUI 实测脚本位于
+`test-harness/` (`gui_step11_robustness.mjs` / `gui_step12_params.mjs` /
+`gui_step13_evidence.mjs`, 用 Playwright + Chromium 模拟真实用户操作);
+样例数据见 `docs/测试样例.md`, 历史测试结论见 `docs/测试报告.md`。
 
 ## 开源代码与许可
 
@@ -319,5 +357,6 @@ npm run build                     # tsc 类型检查 + vite build
 - [ ] Agent 流式输出经 WebSocket 实时推送(而非轮询)
 - [ ] 真实 LLM 调用 + Kirchenbauer 水印嵌入
 - [ ] 用户认证 (JWT) 与 `User` 表对接
-#   r e s e a r c h - c o l l a b  
+#   r e s e a r c h - c o l l a b 
+ 
  

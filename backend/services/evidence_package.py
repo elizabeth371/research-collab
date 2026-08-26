@@ -16,6 +16,7 @@
 
 import hashlib
 import json
+import os
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
@@ -255,19 +256,36 @@ def render_markdown(data: dict) -> str:
 _FONT = "SimHei"
 
 
+def _font_paths() -> List[str]:
+    """候选中文字体路径: 优先仓库内置字体 (Docker 可移植), 其次 Windows 系统字体"""
+    repo_font = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "fonts",
+        "simhei.ttf",
+    )
+    return [repo_font, "C:/Windows/Fonts/simhei.ttf"]
+
+
 def _ensure_fonts() -> None:
     from reportlab.pdfbase import pdfmetrics
     from reportlab.pdfbase.ttfonts import TTFont
 
-    if _FONT not in pdfmetrics.getRegisteredFontNames():
-        pdfmetrics.registerFont(TTFont(_FONT, "C:/Windows/Fonts/simhei.ttf"))
-        pdfmetrics.registerFontFamily(
-            _FONT,
-            normal=_FONT,
-            bold=_FONT,
-            italic=_FONT,
-            boldItalic=_FONT,
-        )
+    if _FONT in pdfmetrics.getRegisteredFontNames():
+        return
+    for path in _font_paths():
+        if os.path.exists(path):
+            pdfmetrics.registerFont(TTFont(_FONT, path))
+            pdfmetrics.registerFontFamily(
+                _FONT,
+                normal=_FONT,
+                bold=_FONT,
+                italic=_FONT,
+                boldItalic=_FONT,
+            )
+            return
+    raise RuntimeError(
+        "未找到中文字体 simhei.ttf (请检查 backend/fonts/simhei.ttf 或系统字体)"
+    )
 
 
 def render_pdf(data: dict) -> bytes:

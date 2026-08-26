@@ -1,0 +1,44 @@
+# 智溯 · 一键容器化部署
+# 用法:
+#   docker compose up -d --build
+# 访问: http://localhost (前端, Nginx) ; http://localhost:8000/api/health (后端)
+#
+# 环境变量 (可选, 在 .env 或 shell 中配置):
+#   LLM_API_KEY  DeepSeek API Key (用于 AI 写作水印注入 / 回译攻击 / Agent 编排)
+#
+# 数据持久化: SQLite 数据库存放于命名卷 backend-data, 容器重建不丢失
+services:
+  backend:
+    build: ./backend
+    container_name: research-collab-backend
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      # DeepSeek API Key (仅本地/受控环境配置; 未配置时 AI 能力降级, 水印检测等离线能力不受影响)
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      # SQLite 数据库落盘到数据卷, 持久化所有文档/溯源链/水印记录
+      SQLITE_PATH: /app/data/research_colab.db
+    volumes:
+      - backend-data:/app/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    container_name: research-collab-frontend
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+
+volumes:
+  backend-data:

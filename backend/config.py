@@ -32,6 +32,12 @@ class Settings(BaseSettings):
         default="postgresql+asyncpg://postgres:postgres@localhost:5432/research_colab",
         description="SQLAlchemy 异步数据库连接串",
     )
+    # PostgreSQL 不可用时的 SQLite 回退路径 (相对后端工作目录或绝对路径;
+    # Docker 部署通过该配置把数据库持久化到数据卷)
+    SQLITE_PATH: str = Field(
+        default="./research_colab.db",
+        description="SQLite 回退数据库文件路径",
+    )
 
     # ---- WebSocket 协同 ----
     WS_MAX_CLIENTS_PER_DOC: int = 64
