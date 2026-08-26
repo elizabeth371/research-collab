@@ -404,6 +404,37 @@ export const exportDocument = async (docId: string): Promise<string> => {
   return await res.text();
 };
 
+/** 证据包格式 */
+export type EvidenceFormat = 'pdf' | 'md' | 'json';
+
+export interface EvidencePackageFile {
+  blob: Blob;
+  filename: string;
+}
+
+/**
+ * 导出文档版权证据包 (步骤 13): PDF / Markdown / JSON。
+ * 证据包内含文档全文、水印参数与密钥指纹、检测历史、溯源链与哈希链校验、
+ * 导出时刻实时检测, 附 package_hash 完整性校验。
+ */
+export const exportEvidencePackage = async (
+  docId: string,
+  format: EvidenceFormat
+): Promise<EvidencePackageFile> => {
+  const res = await fetch(
+    `${BASE_URL}/watermark/documents/${docId}/evidence?format=${format}`
+  );
+  if (!res.ok) {
+    throw new Error(`证据包导出失败: ${res.status} ${res.statusText}`);
+  }
+  const blob = await res.blob();
+  const cd = res.headers.get('Content-Disposition') || '';
+  const m = /filename="?([^";]+)"?/.exec(cd);
+  const filename =
+    m?.[1] ?? `evidence-${docId}.${format === 'json' ? 'json' : format === 'md' ? 'md' : 'pdf'}`;
+  return { blob, filename };
+};
+
 // ---------------------------------------------------------------------------
 // 段落批注 (师门共研)
 // ---------------------------------------------------------------------------

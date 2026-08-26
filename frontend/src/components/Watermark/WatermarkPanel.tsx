@@ -8,11 +8,13 @@ import type {
 import {
   detectDocumentWatermark,
   detectWatermark,
+  exportEvidencePackage,
   generateWatermarkedText,
   getDocWatermarkParams,
   getWatermarkRecords,
   runRobustnessTest,
   updateDocWatermarkParams,
+  type EvidenceFormat,
   type WatermarkRecordItem,
 } from '../../lib/api';
 import { appendAiText } from '../../lib/yjs';
@@ -69,6 +71,34 @@ export function WatermarkPanel({ docId, getDocText }: WatermarkPanelProps) {
   const [paramsMsg, setParamsMsg] = useState<string | null>(null);
   const [paramsErr, setParamsErr] = useState<string | null>(null);
   const [showKey, setShowKey] = useState(false);
+
+  // ---- 版权证据包导出状态 (步骤 13) ----
+  const [exporting, setExporting] = useState(false);
+  const [exportMsg, setExportMsg] = useState<string | null>(null);
+  const [exportErr, setExportErr] = useState<string | null>(null);
+
+  /** 导出版权证据包 (PDF / Markdown / JSON), 触发浏览器下载 */
+  const doExport = async (fmt: EvidenceFormat) => {
+    setExportMsg(null);
+    setExportErr(null);
+    setExporting(true);
+    try {
+      const { blob, filename } = await exportEvidencePackage(docId, fmt);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 5000);
+      setExportMsg(`已导出 ${filename} (${(blob.size / 1024).toFixed(1)} KB)`);
+    } catch (e) {
+      setExportErr(e instanceof Error ? e.message : '证据包导出失败');
+    } finally {
+      setExporting(false);
+    }
+  };
 
   const refreshParams = useCallback(async () => {
     if (!docId) return;
@@ -349,6 +379,56 @@ export function WatermarkPanel({ docId, getDocText }: WatermarkPanelProps) {
           </div>
         ) : (
           <p className="text-[10px] text-slate-400">文档参数加载失败或不可用</p>
+        )}
+      </div>
+
+      {/* 版权证据包导出 (步骤 13) */}
+      <div className="rounded-lg border border-emerald-100 bg-emerald-50/40 p-3 space-y-2">
+        <div className="flex items-center justify-between">
+          <h4 className="text-xs font-semibold text-emerald-800">
+            📦 版权证据包导出
+          </h4>
+          <span className="text-[10px] text-emerald-500">PDF · Markdown · JSON</span>
+        </div>
+        <p className="text-[10px] text-emerald-700/70 leading-relaxed">
+          将文档全文、水印参数与密钥指纹、检测历史、溯源链及哈希链校验结果打包，
+          附 package_hash 完整性校验，可存档或作为版权归属审计材料提交。
+        </p>
+        <div className="grid grid-cols-3 gap-1.5">
+          <button
+            onClick={() => void doExport('pdf')}
+            disabled={exporting}
+            className="text-[11px] font-medium py-1.5 rounded-md bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+          >
+            PDF
+          </button>
+          <button
+            onClick={() => void doExport('md')}
+            disabled={exporting}
+            className="text-[11px] font-medium py-1.5 rounded-md border border-emerald-300 text-emerald-700 bg-white hover:bg-emerald-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+          >
+            Markdown
+          </button>
+          <button
+            onClick={() => void doExport('json')}
+            disabled={exporting}
+            className="text-[11px] font-medium py-1.5 rounded-md border border-emerald-300 text-emerald-700 bg-white hover:bg-emerald-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+          >
+            JSON
+          </button>
+        </div>
+        {exporting && (
+          <p className="text-[10px] text-emerald-600">证据包生成中...</p>
+        )}
+        {exportMsg && (
+          <div className="text-[10px] text-green-600 bg-green-50 rounded px-2 py-1.5 break-all">
+            ✅ {exportMsg}
+          </div>
+        )}
+        {exportErr && (
+          <div className="text-[10px] text-red-500 bg-red-50 rounded px-2 py-1.5">
+            {exportErr}
+          </div>
         )}
       </div>
 

@@ -9,10 +9,11 @@ import base64
 import hashlib
 import os
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -464,6 +465,11 @@ async def verify_provenance(
          (链首 prev_hash 必须为空串 "")
     全部通过则返回 valid=True。
     """
+    return await _verify_chain(db, doc_id)
+
+
+async def _verify_chain(db: AsyncSession, doc_id: uuid.UUID) -> dict:
+    """溯源哈希链校验公共实现 (被 verify 端点与证据包导出复用)"""
     # 避免循环导入
     from services.oplog_chain import OpLogHashChain
 
@@ -514,3 +520,88 @@ async def verify_provenance(
         checked += 1
 
     return {"doc_id": str(doc_id), "valid": valid, "checked": checked}
+
+
+# ---------------------------------------------------------------------------
+# 版权证据包导出 (步骤 13)
+# ---------------------------------------------------------------------------
+@router.get("/documents/{doc_id}/evidence")
+async def export_evidence_package(
+    doc_id: uuid.UUID,
+    fmt: str = Query("pdf", alias="format", pattern="^(pdf|md|json)$"),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    导出文档版权证据包 (PDF / Markdown / JSON)。
+
+    证据包内容: 文档元信息与全文快照、每文档水印参数与密钥指纹、全部水印
+    检测历史、完整溯源链与哈希链校验结果、导出时刻的实时检测观察。
+    三种格式均附带 package_hash (对去除该字段后规范化 JSON 的 SHA-256),
+    接收方可离线重算校验证据包未被篡改。
+    """
+    from services.evidence_package import (
+        build_evidence_data,
+        render_markdown,
+        render_pdf,
+    )
+    from config import settings
+
+    doc = await db.get(Document, doc_id)
+    if doc is None:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    # 水印检测历史 (时间正序)
+    rec_stmt = (
+        select(WatermarkRecord)
+        .where(WatermarkRecord.doc_id == doc_id)
+        .order_by(WatermarkRecord.created_at.asc())
+    )
+    records = list((await db.execute(rec_stmt)).scalars().all())
+
+    # 溯源链 (时间正序) + 哈希链校验
+    log_stmt = (
+        select(OpLog)
+        .where(OpLog.doc_id == doc_id)
+        .order_by(OpLog.created_at.asc())
+    )
+    logs = list((await db.execute(log_stmt)).scalars().all())
+    chain_verify = await _verify_chain(db, doc_id)
+
+    # 导出时刻实时检测 (仅作为观察记录, 不落库)
+    engine = WatermarkEngine(
+        gamma=doc.watermark_gamma,
+        delta=doc.watermark_delta,
+        secret_key=doc.watermark_key or settings.WATERMARK_SECRET_KEY,
+    )
+    live = engine.detect_watermark(doc.content or "")
+    live_detect = {
+        "is_ai_generated": live["is_ai_generated"],
+        "confidence": live["confidence"],
+        "watermark_chars": live["watermark_chars"],
+        "model_name": live.get("model_name"),
+        "z_score": live.get("z_score", 0.0),
+        "green_fraction": live.get("green_fraction", 0.0),
+        "num_tokens_scored": live.get("num_tokens_scored", 0),
+        "p_value": live.get("p_value", 1.0),
+    }
+
+    data = build_evidence_data(doc, records, logs, chain_verify, live_detect)
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    fname = f"evidence-{doc_id}-{stamp}"
+
+    if fmt == "json":
+        return JSONResponse(
+            data,
+            headers={"Content-Disposition": f'attachment; filename="{fname}.json"'},
+        )
+    if fmt == "md":
+        return Response(
+            render_markdown(data),
+            media_type="text/markdown; charset=utf-8",
+            headers={"Content-Disposition": f'attachment; filename="{fname}.md"'},
+        )
+    return Response(
+        render_pdf(data),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{fname}.pdf"'},
+    )
