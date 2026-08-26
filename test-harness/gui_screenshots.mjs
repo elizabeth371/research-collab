@@ -52,6 +52,19 @@ const main = async () => {
     await page.goto(BASE);
     await page.waitForSelector('.ProseMirror', { timeout: 20000 });
 
+    // ---- 01 编辑器主界面 (正式演示文档: 打开系统默认即展示丰富文档) ----
+    // 等待编辑器渲染出演示文档内容 (Yjs 初始化 + initialContent 应用)
+    const demoShown = await poll(async () => {
+      const txt = await page.locator('.ProseMirror').innerText().catch(() => '');
+      return txt.includes('本演示文档用于展示系统核心功能');
+    }, 30000);
+    if (!demoShown) {
+      const txt = await page.locator('.ProseMirror').innerText().catch(() => '(空)');
+      throw new Error(`演示文档内容未渲染, 编辑器文本: ${txt.slice(0, 120)}`);
+    }
+    await page.waitForTimeout(1000);
+    await page.screenshot({ path: shot('s16-01-编辑器主界面.png'), fullPage: false });
+
     // ---- 0. 新建临时文档 + 输入学术内容 ----
     await page.locator('header button').filter({ hasText: '新建文档' }).click();
     await page.waitForFunction(() => {
@@ -80,11 +93,6 @@ const main = async () => {
       throw new Error(`reload 后 ProseMirror 未出现, 页面内容: ${body}`);
     }
     await page.selectOption('header select', docId);
-
-    // ---- 01 编辑器主界面 ----
-    await page.evaluate(() => window.scrollTo(0, 0));
-    await page.waitForTimeout(1200);
-    await page.screenshot({ path: shot('s16-01-编辑器主界面.png'), fullPage: false });
 
     // ---- 02 Agent 群聊 (真实 LLM 写稿) ----
     const agentPanel = page.locator('aside').first();
