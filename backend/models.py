@@ -453,6 +453,43 @@ class DocumentVersion(Base):
 # ===========================================================================
 # 7. 段落批注表
 # ===========================================================================
+class ChatMessage(Base):
+    """
+    协作聊天消息表 (步骤 16): 同一文档房间内师生/同伴的实时讨论记录。
+
+    消息经 /ws/chat/{doc_id} WebSocket 房间广播, 并持久化于此,
+    供新加入成员加载历史 (师门共研的讨论过程可回溯)。
+    """
+
+    __tablename__ = "chat_messages"
+    __table_args__ = (Index("idx_chat_doc", "doc_id"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID_TYPE, primary_key=True, default=_gen_uuid
+    )
+    doc_id: Mapped[uuid.UUID] = mapped_column(
+        UUID_TYPE,
+        ForeignKey("documents.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID_TYPE,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    # 展示用冗余: 发送者显示名 (随消息快照, 不随用户改名变化)
+    username: Mapped[str] = mapped_column(String(128), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+
+    def __repr__(self) -> str:
+        return f"<ChatMessage {self.doc_id} {self.username}: {self.content[:20]}>"
+
+
 class Comment(Base):
     """
     段落级批注表: 师门共研核心能力。

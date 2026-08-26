@@ -318,3 +318,14 @@ export interface PermissionsUpdatePayload {
   export_policy: ExportPolicy;
   collaborator_ids: string[];
 }
+
+// ==================== 协作聊天 (步骤 16) ====================
+
+export interface ChatMessageItem {
+  id: string;
+  doc_id: string;
+  user_id?: string | null;
+  username: string;
+  content: string;
+  created_at: string;
+}

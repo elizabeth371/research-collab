@@ -4,6 +4,7 @@ import { AgentPanel } from './components/Agent/AgentPanel';
 import { WatermarkPanel } from './components/Watermark/WatermarkPanel';
 import { ProvenancePanel } from './components/Provenance/ProvenancePanel';
 import { LiteraturePanel } from './components/Literature/LiteraturePanel';
+import { ChatPanel } from './components/Chat/ChatPanel';
 import { DocSettingsModal } from './components/Settings/DocSettingsModal';
 import {
   fetchBootstrap,
@@ -42,7 +43,9 @@ export default function App() {
   const [userId, setUserId] = useState<string>('');
   const [docId, setDocId] = useState<string>('');
   const [docs, setDocs] = useState<DocSummary[]>([]);
-  const [rightTab, setRightTab] = useState<'watermark' | 'provenance' | 'literature'>('watermark');
+  const [rightTab, setRightTab] = useState<
+    'watermark' | 'provenance' | 'literature' | 'chat'
+  >('watermark');
   const [creating, setCreating] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -365,6 +368,7 @@ export default function App() {
                 ['watermark', '水印检测'],
                 ['provenance', '溯源链'],
                 ['literature', '文献检索'],
+                ['chat', '协作聊天'],
               ] as const
             ).map(([key, label]) => (
               <button
@@ -391,6 +395,9 @@ export default function App() {
             {rightTab === 'provenance' && <ProvenancePanel docId={docId} />}
             {rightTab === 'literature' && (
               <LiteraturePanel docId={docId} ydoc={ydoc} />
+            )}
+            {rightTab === 'chat' && (
+              <ChatPanel docId={docId} userId={userId} username={username} />
             )}
           </div>
         </aside>

@@ -17,6 +17,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import select
 
 from api import agents as agents_api
+from api import chat as chat_api
 from api import comments as comments_api
 from api import documents as documents_api
 from api import literature as literature_api
@@ -243,6 +244,7 @@ app.include_router(comments_api.router)
 app.include_router(agents_api.router)
 app.include_router(watermark_api.router)
 app.include_router(literature_api.router)
+app.include_router(chat_api.router)
 
 # ---------------------------------------------------------------------------
 # 注册 WebSocket 协同路由 (Yjs)
@@ -250,6 +252,11 @@ app.include_router(literature_api.router)
 #   - 同时也挂载 y-websocket 的 /yjs 心跳/就绪检查
 # ---------------------------------------------------------------------------
 app.include_router(collaborative_router)
+
+# 注册 WebSocket 聊天路由 (步骤 16): /ws/chat/{doc_id}
+from websocket.chat_ws import chat_router
+
+app.include_router(chat_router)
 
 
 # ---------------------------------------------------------------------------

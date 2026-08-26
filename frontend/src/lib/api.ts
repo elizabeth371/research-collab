@@ -10,6 +10,7 @@ import type {
   WatermarkDetectionResult,
   AgentMessage,
   AgentType,
+  ChatMessageItem,
   PolishChange,
   PolishResult,
   ReviewIssue,
@@ -640,3 +641,10 @@ export const updateDocumentPermissions = (
     method: 'PUT',
     body: JSON.stringify(payload),
   });
+
+
+/** 获取文档房间的聊天历史 (时间正序, 默认最近 100 条) */
+export const getChatMessages = (docId: string, limit = 100) =>
+  request<ChatMessageItem[]>(
+    `/documents/${docId}/chat/messages?limit=${limit}`
+  );
