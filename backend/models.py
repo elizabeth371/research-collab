@@ -404,6 +404,53 @@ class PermissionConfig(Base):
 
 
 # ===========================================================================
+# 6.5 文档版本表 (版本回溯, 步骤 15)
+# ===========================================================================
+class DocumentVersion(Base):
+    """
+    文档版本快照表: 支撑「版本回溯」功能。
+
+    每次内容发生变更的保存 (PATCH) 自动记录一版快照:
+    - content: 该版本全文快照 (可直接预览/恢复)
+    - yjs_state: 该版本 Yjs CRDT 状态快照 (恢复时一并回写, 协同端可同步)
+    - version_no: 文档内自增版本号 (1 起), 唯一约束 (doc_id, version_no)
+
+    保留策略: 每文档最多保留 MAX 个版本, 超出删除最旧 (由 API 层维护)。
+    """
+
+    __tablename__ = "document_versions"
+    __table_args__ = (
+        UniqueConstraint("doc_id", "version_no", name="uq_doc_version"),
+        Index("idx_docversions_doc", "doc_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID_TYPE, primary_key=True, default=_gen_uuid
+    )
+    doc_id: Mapped[uuid.UUID] = mapped_column(
+        UUID_TYPE,
+        ForeignKey("documents.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    version_no: Mapped[int] = mapped_column(Integer, nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    yjs_state: Mapped[Optional[bytes]] = mapped_column(BYTEA_TYPE, nullable=True)
+    operator_id: Mapped[uuid.UUID] = mapped_column(
+        UUID_TYPE,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+
+    def __repr__(self) -> str:
+        return f"<DocumentVersion {self.doc_id} v{self.version_no}>"
+
+
+# ===========================================================================
 # 7. 段落批注表
 # ===========================================================================
 class Comment(Base):

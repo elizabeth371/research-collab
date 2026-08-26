@@ -54,6 +54,7 @@ def _cleanup_test_docs():
                 models.Comment,
                 models.DocumentCollaborator,
                 models.PermissionConfig,
+                models.DocumentVersion,
             ):
                 await session.execute(
                     delete(table).where(table.doc_id.in_(ids))

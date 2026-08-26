@@ -1,7 +1,11 @@
 import type {
   Document,
+  DocumentPermissions,
+  DocumentVersions,
+  DocumentVersionDetail,
   DocumentWatermarkParams,
   LLMGenerateResult,
+  PermissionsUpdatePayload,
   RobustnessResult,
   WatermarkDetectionResult,
   AgentMessage,
@@ -604,3 +608,35 @@ export const getWatermarkRecords = (
   request<{ doc_id: string; records: WatermarkRecordItem[] }>(
     `/watermark/documents/${docId}/records`
   );
+
+// ---------------------------------------------------------------------------
+// 版本回溯 + 文档权限 (步骤 15)
+// ---------------------------------------------------------------------------
+
+/** 列出文档全部版本快照 (新→旧) */
+export const getDocumentVersions = (docId: string) =>
+  request<DocumentVersions>(`/documents/${docId}/versions`);
+
+/** 获取某版本完整内容 */
+export const getDocumentVersion = (docId: string, versionNo: number) =>
+  request<DocumentVersionDetail>(`/documents/${docId}/versions/${versionNo}`);
+
+/** 恢复到指定版本 (内容回退 + 溯源链留痕 version_restore) */
+export const restoreDocumentVersion = (docId: string, versionNo: number) =>
+  request<Document>(`/documents/${docId}/versions/${versionNo}/restore`, {
+    method: 'POST',
+  });
+
+/** 读取文档权限配置与协作者列表 */
+export const getDocumentPermissions = (docId: string) =>
+  request<DocumentPermissions>(`/documents/${docId}/permissions`);
+
+/** 更新文档权限配置与协作者集合 (全量替换) */
+export const updateDocumentPermissions = (
+  docId: string,
+  payload: PermissionsUpdatePayload
+) =>
+  request<DocumentPermissions>(`/documents/${docId}/permissions`, {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+  });

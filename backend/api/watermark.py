@@ -550,6 +550,15 @@ async def export_evidence_package(
     if doc is None:
         raise HTTPException(status_code=404, detail="Document not found")
 
+    # 权限策略: 导出限制 (export_policy=deny 时证据包亦禁止导出)
+    from api.documents import _export_denied
+
+    if await _export_denied(db, doc_id):
+        raise HTTPException(
+            status_code=403,
+            detail="文档已设置禁止导出 (export_policy=deny)",
+        )
+
     # 水印检测历史 (时间正序)
     rec_stmt = (
         select(WatermarkRecord)

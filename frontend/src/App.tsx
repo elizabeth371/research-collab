@@ -4,9 +4,18 @@ import { AgentPanel } from './components/Agent/AgentPanel';
 import { WatermarkPanel } from './components/Watermark/WatermarkPanel';
 import { ProvenancePanel } from './components/Provenance/ProvenancePanel';
 import { LiteraturePanel } from './components/Literature/LiteraturePanel';
-import { fetchBootstrap, createDocument, updateDocument, exportDocument, getDocument } from './lib/api';
+import { DocSettingsModal } from './components/Settings/DocSettingsModal';
+import {
+  fetchBootstrap,
+  createDocument,
+  updateDocument,
+  exportDocument,
+  getDocument,
+  getDocumentPermissions,
+} from './lib/api';
 import { disposeCollabSession, getCollabSession } from './lib/collab';
 import { getPlainText } from './lib/yjs';
+import type { DocumentPermissions } from '@shared/types';
 
 /**
  * 应用根组件
@@ -38,6 +47,9 @@ export default function App() {
   const [exporting, setExporting] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [backendOk, setBackendOk] = useState<boolean | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [docPerms, setDocPerms] = useState<DocumentPermissions | null>(null);
+  const [editorReloadKey, setEditorReloadKey] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // ---- 初始化: 拉取演示用户与文档列表 ----
@@ -102,6 +114,40 @@ export default function App() {
     };
   }, [docId]);
 
+  // 拉取当前文档权限 (导出策略/协作模式/水印策略), 控制导出按钮与证据包
+  useEffect(() => {
+    if (!docId) return;
+    let cancelled = false;
+    getDocumentPermissions(docId)
+      .then((p) => {
+        if (!cancelled) setDocPerms(p);
+      })
+      .catch(() => {
+        /* 权限拉取失败时保持默认 (允许导出) */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [docId]);
+
+  const exportDenied = docPerms?.export_policy === 'deny';
+
+  /** 版本恢复成功: 销毁旧 Yjs 会话并重挂载编辑器 (初始内容取恢复后的全文) */
+  const handleRestored = useCallback(() => {
+    if (docId) disposeCollabSession(docId);
+    fetchBootstrap().then((boot) => {
+      setDocs(
+        boot.documents.map((d) => ({
+          id: d.id,
+          title: d.title,
+          content: d.content,
+          updatedAt: d.updated_at,
+        }))
+      );
+    });
+    setEditorReloadKey((k) => k + 1);
+  }, [docId]);
+
   const getDocText = useCallback(() => (ydoc ? getPlainText(ydoc) : ''), [ydoc]);
 
   const currentDoc = docs.find((d) => d.id === docId);
@@ -161,7 +207,7 @@ export default function App() {
   };
 
   const handleExportDoc = async () => {
-    if (!currentDoc || exporting) return;
+    if (!currentDoc || exporting || exportDenied) return;
     setExporting(true);
     try {
       const md = await exportDocument(docId);
@@ -262,11 +308,23 @@ export default function App() {
           </button>
           <button
             onClick={handleExportDoc}
-            disabled={exporting || !currentDoc}
-            title="导出为 Markdown (含溯源元数据)"
+            disabled={exporting || !currentDoc || exportDenied}
+            title={
+              exportDenied
+                ? '文档已设置禁止导出 (权限管理)'
+                : '导出为 Markdown (含溯源元数据)'
+            }
+            className="text-xs px-3 py-1.5 rounded-md border border-slate-200 text-slate-600 hover:bg-slate-50 hover:border-slate-300 disabled:opacity-40 disabled:cursor-not-allowed transition-colors whitespace-nowrap"
+          >
+            {exporting ? '导出中...' : exportDenied ? '🔒 已禁止导出' : '导出 Markdown'}
+          </button>
+          <button
+            onClick={() => setSettingsOpen(true)}
+            disabled={!currentDoc}
+            title="文档设置: 版本回溯 / 权限管理"
             className="text-xs px-3 py-1.5 rounded-md border border-slate-200 text-slate-600 hover:bg-slate-50 hover:border-slate-300 disabled:opacity-40 transition-colors whitespace-nowrap"
           >
-            {exporting ? '导出中...' : '导出 Markdown'}
+            ⚙️ 文档设置
           </button>
         </div>
 
@@ -289,7 +347,7 @@ export default function App() {
         {/* 中: 协同编辑器 */}
         <main className="flex-1 flex flex-col min-w-0 p-4">
           <CollaborativeEditor
-            key={docId}
+            key={`${docId}-${editorReloadKey}`}
             docId={docId}
             username={username}
             ydoc={ydoc}
@@ -324,7 +382,11 @@ export default function App() {
           </div>
           <div className="flex-1 overflow-y-auto p-4">
             {rightTab === 'watermark' && (
-              <WatermarkPanel docId={docId} getDocText={getDocText} />
+              <WatermarkPanel
+                docId={docId}
+                getDocText={getDocText}
+                exportDenied={exportDenied}
+              />
             )}
             {rightTab === 'provenance' && <ProvenancePanel docId={docId} />}
             {rightTab === 'literature' && (
@@ -333,6 +395,15 @@ export default function App() {
           </div>
         </aside>
       </div>
+
+      {/* 文档设置: 版本回溯 + 权限管理 (步骤 15) */}
+      <DocSettingsModal
+        docId={docId}
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        onRestored={handleRestored}
+        onPermissionsChanged={(p) => setDocPerms(p)}
+      />
     </div>
   );
 }

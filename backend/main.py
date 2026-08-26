@@ -71,6 +71,43 @@ async def seed_demo_data() -> None:
             )
             db.add(user)
 
+        # 演示协作用户 (权限管理/协作者选择用, 幂等)
+        demo_collabs = [
+            (
+                "00000000-0000-4000-8000-0000000000b1",
+                "teacher-zhao",
+                "zhao@chd.edu.cn",
+                "赵老师(导师)",
+                "collaborator",
+            ),
+            (
+                "00000000-0000-4000-8000-0000000000b2",
+                "li-jingwen",
+                "li@chd.edu.cn",
+                "李静雯",
+                "collaborator",
+            ),
+            (
+                "00000000-0000-4000-8000-0000000000b3",
+                "sun-xitong",
+                "sun@chd.edu.cn",
+                "孙希彤",
+                "collaborator",
+            ),
+        ]
+        for uid, uname, uemail, dname, urole in demo_collabs:
+            uid_obj = uuid.UUID(uid)
+            if await db.get(User, uid_obj) is None:
+                db.add(
+                    User(
+                        id=uid_obj,
+                        username=uname,
+                        email=uemail,
+                        display_name=dname,
+                        role=urole,
+                    )
+                )
+
         doc = await db.get(Document, DEMO_DOC_ID)
         if doc is None:
             doc = Document(

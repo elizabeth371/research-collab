@@ -261,3 +261,60 @@ export type WsMessage =
   | { type: 'agent_state'; payload: AgentState }
   | { type: 'sync_ready'; docId: string; clientCount: number }
   | { type: 'error'; message: string };
+// ==================== 版本回溯 (步骤 15) ====================
+
+export interface DocumentVersionItem {
+  version_no: number;
+  created_at: string;
+  operator_id: string;
+  content_length: number;
+  preview: string;
+  has_yjs_state: boolean;
+}
+
+export interface DocumentVersions {
+  doc_id: string;
+  total: number;
+  max_versions: number;
+  versions: DocumentVersionItem[];
+}
+
+export interface DocumentVersionDetail {
+  doc_id: string;
+  version_no: number;
+  created_at: string;
+  operator_id: string;
+  content: string;
+  yjs_state_b64?: string | null;
+}
+
+// ==================== 文档权限 (步骤 15) ====================
+
+export interface CollaboratorItem {
+  user_id: string;
+  username: string;
+  display_name: string;
+  role: string;
+}
+
+export type CollabMode = 'open' | 'invited';
+export type WatermarkPolicy = 'enforce' | 'optional';
+export type ExportPolicy = 'allow' | 'deny';
+
+export interface DocumentPermissions {
+  doc_id: string;
+  owner_id: string;
+  collab_mode: CollabMode;
+  watermark_policy: WatermarkPolicy;
+  export_policy: ExportPolicy;
+  updated_at?: string | null;
+  collaborators: CollaboratorItem[];
+  all_users: CollaboratorItem[];
+}
+
+export interface PermissionsUpdatePayload {
+  collab_mode: CollabMode;
+  watermark_policy: WatermarkPolicy;
+  export_policy: ExportPolicy;
+  collaborator_ids: string[];
+}

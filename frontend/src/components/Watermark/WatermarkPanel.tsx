@@ -38,9 +38,15 @@ import { getCollabSession } from '../../lib/collab';
 interface WatermarkPanelProps {
   docId: string;
   getDocText: () => string;
+  /** 文档导出策略为 deny 时禁用证据包导出 (后端同样 403 拦截) */
+  exportDenied?: boolean;
 }
 
-export function WatermarkPanel({ docId, getDocText }: WatermarkPanelProps) {
+export function WatermarkPanel({
+  docId,
+  getDocText,
+  exportDenied = false,
+}: WatermarkPanelProps) {
   const [customText, setCustomText] = useState('');
   const [result, setResult] = useState<WatermarkDetectionResult | null>(null);
   const [records, setRecords] = useState<WatermarkRecordItem[]>([]);
@@ -394,24 +400,29 @@ export function WatermarkPanel({ docId, getDocText }: WatermarkPanelProps) {
           将文档全文、水印参数与密钥指纹、检测历史、溯源链及哈希链校验结果打包，
           附 package_hash 完整性校验，可存档或作为版权归属审计材料提交。
         </p>
+        {exportDenied && (
+          <p className="text-[10px] text-amber-600 bg-amber-50 rounded px-2 py-1">
+            🔒 文档已设置禁止导出（权限管理），证据包导出已禁用。
+          </p>
+        )}
         <div className="grid grid-cols-3 gap-1.5">
           <button
             onClick={() => void doExport('pdf')}
-            disabled={exporting}
+            disabled={exporting || exportDenied}
             className="text-[11px] font-medium py-1.5 rounded-md bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
           >
             PDF
           </button>
           <button
             onClick={() => void doExport('md')}
-            disabled={exporting}
+            disabled={exporting || exportDenied}
             className="text-[11px] font-medium py-1.5 rounded-md border border-emerald-300 text-emerald-700 bg-white hover:bg-emerald-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
           >
             Markdown
           </button>
           <button
             onClick={() => void doExport('json')}
-            disabled={exporting}
+            disabled={exporting || exportDenied}
             className="text-[11px] font-medium py-1.5 rounded-md border border-emerald-300 text-emerald-700 bg-white hover:bg-emerald-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
           >
             JSON
