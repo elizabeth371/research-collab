@@ -25,6 +25,8 @@ interface ChatItem {
   agentType?: AgentType;
   content: string;
   createdAt: string;
+  /** 步骤 10: Writer 产出是否已注入 AI 水印 (显示「已加水印」徽章) */
+  watermarked?: boolean;
 }
 
 /** 会话/线程缓存: 按文档保存, 切换文档或组件重挂载后群聊不丢失 (服务端会话存内存) */
@@ -174,6 +176,7 @@ export function AgentPanel({ docId, username, ydoc }: AgentPanelProps) {
           agentType: m.agentType,
           content: m.content,
           createdAt: m.createdAt ?? new Date().toISOString(),
+          watermarked: m.watermarked,
         }))
       );
 
@@ -414,8 +417,18 @@ export function AgentPanel({ docId, username, ydoc }: AgentPanelProps) {
                 {AGENT_META[m.agentType ?? AgentType.SUPERVISOR]?.emoji ?? AGENT_META.supervisor.emoji}
               </span>
               <div className="min-w-0">
-                <div className="text-[10px] text-slate-400 mb-0.5">
-                  {AGENT_META[m.agentType ?? AgentType.SUPERVISOR]?.label ?? AGENT_META.supervisor.label}
+                <div className="flex items-center gap-1.5 mb-0.5">
+                  <span className="text-[10px] text-slate-400">
+                    {AGENT_META[m.agentType ?? AgentType.SUPERVISOR]?.label ?? AGENT_META.supervisor.label}
+                  </span>
+                  {m.watermarked && (
+                    <span
+                      title="本段由真实 LLM 生成并经 logprobs 重采样注入字符级 AI 水印"
+                      className="text-[9px] font-semibold text-blue-600 bg-blue-50 border border-blue-200 rounded-full px-1.5 py-px"
+                    >
+                      🔵 已加水印
+                    </span>
+                  )}
                 </div>
                 <div
                   className={`rounded-xl rounded-tl-sm border text-[11px] leading-relaxed px-2.5 py-2 text-slate-700 whitespace-pre-wrap break-words ${AGENT_META[m.agentType ?? AgentType.SUPERVISOR]?.bubble ?? AGENT_META.supervisor.bubble}`}

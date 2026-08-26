@@ -415,7 +415,7 @@ class WatermarkEngine:
         llm_client: Any,
         messages: List[Dict[str, str]],
         *,
-        temperature: float = 0.8,
+        temperature: float = 1.5,
         max_tokens: int = 600,
         top_logprobs: int = 20,
         delta: Optional[float] = None,
@@ -431,11 +431,13 @@ class WatermarkEngine:
         Args:
             llm_client: services.llm_client.LLMClient 实例 (延迟导入避免环)
             messages:   OpenAI 兼容消息组 (与 write_draft 同构)
-            temperature: 生成温度 (影响候选分布)
+            temperature: 生成温度 (实测标定: 低熵输出时模型过于自信,
+                        green 加分无法翻转 top token, z 值不稳; 1.5 下
+                        多次实测 z∈[7.6,11] 稳定检出且文本仍通顺)
             max_tokens:  生成长度上限 (按 token 计, 中文约 0.6-1 字/token;
                          实测 300-600 token 才能在 delta=4 下稳定 z>4)
             top_logprobs: 每位置候选数 (1-20)
-            delta:      绿名单偏移强度 (默认 settings.WATERMARK_LLM_DELTA=4.0)
+            delta:      绿名单偏移强度 (默认 settings.WATERMARK_LLM_DELTA=3.0)
             rng:        重采样随机源 (默认随机; 测试可注入固定种子复现)
 
         Returns:

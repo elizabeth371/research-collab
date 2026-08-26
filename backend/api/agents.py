@@ -222,6 +222,8 @@ async def get_session_messages(
             "content": m.get("content", ""),
             "phase": "done",
             "createdAt": None,
+            # 步骤 10: Writer 消息是否含水印 (前端渲染徽章)
+            "watermarked": bool(m.get("watermarked", False)),
         }
         for i, m in enumerate(raw)
     ][:limit]

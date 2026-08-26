@@ -50,10 +50,11 @@ class Settings(BaseSettings):
     # ---- 水印算法参数 (Kirchenbauer) ----
     WATERMARK_GAMMA: float = 0.5       # 绿名单比例
     WATERMARK_DELTA: float = 2.0       # logits 偏移强度
-    WATERMARK_LLM_DELTA: float = 3.0   # 闭源 LLM logprobs 重采样偏移强度
-                                       # (实测: delta=3 + 400token(~400字)
-                                       #  z≈5 稳定检出且文本伪影最轻; delta=2
-                                       #  仅 z~2 不足, delta=4 质量下降明显)
+    WATERMARK_LLM_DELTA: float = 4.0   # 闭源 LLM logprobs 重采样偏移强度
+                                       # (实测: temp=1.5 + delta=4 多次运行
+                                       #  z∈[8.6,12.7] 稳定检出; delta=3 时
+                                       #  低熵内容 z 可低至 3.2 不稳定; 硬
+                                       #  green-only 虽 z>8 但中文乱码不可用)
     WATERMARK_SECRET_KEY: bytes = b"research-colab-watermark-secret-key-2026"
 
     # ---- 操作日志哈希链 ----

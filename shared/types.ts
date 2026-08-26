@@ -104,6 +104,8 @@ export interface AgentMessage {
   /** 思考过程标签: planning | search | reasoning | writing | review | done */
   phase: string;
   createdAt: string;
+  /** 步骤 10: Writer 产出是否已注入 AI 水印 (渲染「已加水印」徽章) */
+  watermarked?: boolean;
 }
 
 // ==================== 水印检测结果 ====================
@@ -118,6 +120,20 @@ export interface WatermarkDetectionResult {
   isAiGenerated: boolean;
   /** 检测耗时 ms */
   latencyMs: number;
+  /** z 统计量 (Kirchenbauer 判定依据, >4 判为 AI 生成) */
+  zScore: number;
+  /** 绿名单命中比例 0~1 */
+  greenFraction: number;
+  /** 参与评分的字符对数 */
+  numTokensScored: number;
+}
+
+/** 真实 LLM 生成 + 水印注入结果 (POST /watermark/generate-llm) */
+export interface LLMGenerateResult {
+  text: string;
+  chars: number;
+  engine: string;
+  detect: WatermarkDetectionResult;
 }
 
 // ==================== 写稿人润色 / 审稿人红牌 ====================

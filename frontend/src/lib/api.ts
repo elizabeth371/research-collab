@@ -1,5 +1,6 @@
 import type {
   Document,
+  LLMGenerateResult,
   WatermarkDetectionResult,
   AgentMessage,
   AgentType,
@@ -327,6 +328,9 @@ interface BackendDetectResponse {
   confidence: number;
   watermark_chars: number;
   model_name?: string | null;
+  z_score?: number;
+  green_fraction?: number;
+  num_tokens_scored?: number;
 }
 
 /**
@@ -346,6 +350,9 @@ export const detectWatermark = async (text: string): Promise<WatermarkDetectionR
     confidence: raw.confidence,
     isAiGenerated: raw.is_ai_generated,
     latencyMs: 0,
+    zScore: raw.z_score ?? 0,
+    greenFraction: raw.green_fraction ?? 0,
+    numTokensScored: raw.num_tokens_scored ?? 0,
   };
 };
 
@@ -453,6 +460,43 @@ export const detectDocumentWatermark = async (
     confidence: raw.confidence,
     isAiGenerated: raw.is_ai_generated,
     latencyMs: 0,
+    zScore: raw.z_score ?? 0,
+    greenFraction: raw.green_fraction ?? 0,
+    numTokensScored: raw.num_tokens_scored ?? 0,
+  };
+};
+
+/**
+ * 真实 LLM 生成 + 水印注入 (POST /api/watermark/generate-llm)
+ * 需后端配置 LLM_API_KEY; 无 Key / 调用失败时后端返回 503 (抛错)。
+ */
+export const generateWatermarkedText = async (
+  prompt: string,
+  maxTokens = 300
+): Promise<LLMGenerateResult> => {
+  const raw = await request<{
+    text: string;
+    chars: number;
+    engine: string;
+    detect: BackendDetectResponse;
+  }>('/watermark/generate-llm', {
+    method: 'POST',
+    body: JSON.stringify({ prompt, max_tokens: maxTokens }),
+  });
+  return {
+    text: raw.text,
+    chars: raw.chars,
+    engine: raw.engine,
+    detect: {
+      docId: '',
+      watermarkChars: raw.detect.watermark_chars,
+      confidence: raw.detect.confidence,
+      isAiGenerated: raw.detect.is_ai_generated,
+      latencyMs: 0,
+      zScore: raw.detect.z_score ?? 0,
+      greenFraction: raw.detect.green_fraction ?? 0,
+      numTokensScored: raw.detect.num_tokens_scored ?? 0,
+    },
   };
 };
 

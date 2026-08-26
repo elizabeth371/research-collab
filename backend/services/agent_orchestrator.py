@@ -365,6 +365,8 @@ async def writer_agent_node(state: State) -> Dict[str, Any]:
                 "role": "agent",
                 "agent": AgentType.WRITER.value,
                 "content": draft,
+                # 步骤 10: 前端以此渲染「已加水印」徽章
+                "watermarked": engine == "llm",
             },
         ],
     }

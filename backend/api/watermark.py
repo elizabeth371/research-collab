@@ -40,6 +40,11 @@ class DetectResponse(BaseModel):
     confidence: float
     watermark_chars: int
     model_name: Optional[str] = None
+    # ---- 论文级统计量 (步骤 10: 前端可视化展示) ----
+    z_score: float = 0.0            # z 统计量 (判定依据, >4 判为 AI 生成)
+    green_fraction: float = 0.0     # 绿名单命中比例
+    num_tokens_scored: int = 0      # 参与评分的字符对数
+    p_value: float = 1.0            # 单侧尾概率
 
 
 class OpLogOut(BaseModel):
@@ -74,6 +79,10 @@ async def detect_watermark(payload: DetectRequest) -> DetectResponse:
         confidence=result["confidence"],
         watermark_chars=result["watermark_chars"],
         model_name=result.get("model_name"),
+        z_score=result.get("z_score", 0.0),
+        green_fraction=result.get("green_fraction", 0.0),
+        num_tokens_scored=result.get("num_tokens_scored", 0),
+        p_value=result.get("p_value", 1.0),
     )
 
 
@@ -205,6 +214,10 @@ async def detect_document_watermark(
         confidence=result["confidence"],
         watermark_chars=result["watermark_chars"],
         model_name=model_name,
+        z_score=result.get("z_score", 0.0),
+        green_fraction=result.get("green_fraction", 0.0),
+        num_tokens_scored=result.get("num_tokens_scored", 0),
+        p_value=result.get("p_value", 1.0),
     )
 
 
