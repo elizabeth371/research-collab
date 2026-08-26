@@ -15,6 +15,8 @@ const OP_TYPE_META: Record<string, { label: string; cls: string }> = {
   replace: { label: '替换', cls: 'bg-purple-50 text-purple-600' },
   ai_generate: { label: 'AI 生成', cls: 'bg-blue-50 text-blue-600' },
   watermark_checked: { label: '水印检测', cls: 'bg-cyan-50 text-cyan-600' },
+  // 步骤 12: 文档水印参数/密钥变更留痕
+  watermark_params: { label: '水印参数', cls: 'bg-indigo-50 text-indigo-600' },
 };
 
 interface ProvenancePanelProps {

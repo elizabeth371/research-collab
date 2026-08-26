@@ -6,6 +6,7 @@
 """
 
 import base64
+import hashlib
 import os
 import uuid
 from datetime import datetime
@@ -97,6 +98,9 @@ class LLMGenerateRequest(BaseModel):
     delta: Optional[float] = Field(
         default=None, ge=0.0, le=10.0, description="绿名单 logits 偏移 (默认取配置 2.0)"
     )
+    doc_id: Optional[uuid.UUID] = Field(
+        default=None, description="所属文档 ID (可选): 传入时使用文档独立密钥/参数注入"
+    )
 
 
 @router.post("/generate-llm")
@@ -108,16 +112,21 @@ async def generate_llm_watermarked(payload: LLMGenerateRequest) -> dict:
           -> WatermarkEngine.resample_with_watermark 按绿名单重新采样
           -> detect_watermark 立即自检。
     未配置 API Key 或调用失败返回 503 (调用方降级, 不产生半成品)。
+    步骤 12: 可传 doc_id, 用该文档的独立密钥/参数注入 (插入文档后可检出)。
     """
     from services.llm_client import llm_client
-    from services.watermark_engine import WatermarkEngine
+    from services.watermark_engine import WatermarkEngine, load_document_engine
 
     if not llm_client.is_available():
         raise HTTPException(
             status_code=503, detail="未配置 LLM_API_KEY, 无法调用真实 LLM 生成"
         )
     engine = (
-        WatermarkEngine(delta=payload.delta) if payload.delta is not None else WatermarkEngine()
+        await load_document_engine(str(payload.doc_id))
+        if payload.doc_id
+        else WatermarkEngine(delta=payload.delta)
+        if payload.delta is not None
+        else WatermarkEngine()
     )
     text = await engine.generate_watermarked(
         llm_client,
@@ -135,6 +144,7 @@ async def generate_llm_watermarked(payload: LLMGenerateRequest) -> dict:
         "chars": len(text),
         "detect": detect,
         "engine": "deepseek-logprobs-resample",
+        "doc_id": str(payload.doc_id) if payload.doc_id else None,
         "note": "文本越长 z 值越高; 建议 max_tokens>=300 (约 300 字) 以获得稳定检出 (z>4)",
     }
 
@@ -149,6 +159,9 @@ class RobustnessRequest(BaseModel):
     include_translation: bool = Field(
         default=False, description="是否执行真实机器翻译回译攻击 (需 LLM_API_KEY, 耗时较长)"
     )
+    doc_id: Optional[uuid.UUID] = Field(
+        default=None, description="所属文档 ID (可选): 传入时用文档独立密钥/参数检测"
+    )
 
 
 @router.post("/robustness")
@@ -160,10 +173,15 @@ async def watermark_robustness(payload: RobustnessRequest) -> dict:
     局部乱序, 可选真实机器翻译回译 (zh->en->zh)。
     返回基线 z 值 + 各攻击后的 z/绿名单占比/检出判定 + 汇总
     (检出率 / 平均 z / 最小 z), 供论文实验表与前端可视化。
+    步骤 12: 可传 doc_id 以文档独立密钥检测 (与生成端一致)。
     """
     from services.watermark_attack import WatermarkAttackSuite
+    from services.watermark_engine import load_document_engine
 
-    suite = WatermarkAttackSuite()
+    engine = (
+        await load_document_engine(str(payload.doc_id)) if payload.doc_id else None
+    )
+    suite = WatermarkAttackSuite(engine=engine)
     llm = None
     if payload.include_translation:
         from services.llm_client import llm_client
@@ -175,7 +193,124 @@ async def watermark_robustness(payload: RobustnessRequest) -> dict:
         llm_client=llm,
     )
     result["engine"] = "kirchenbauer-v1"
+    result["doc_id"] = str(payload.doc_id) if payload.doc_id else None
     return result
+
+
+# ---------------------------------------------------------------------------
+# 步骤 12: 每文档独立水印参数 (密钥 / γ / δ)
+# ---------------------------------------------------------------------------
+class WatermarkParamsOut(BaseModel):
+    """文档水印参数 (密钥以 hex 与指纹形式返回, 不回传原始字节)"""
+
+    gamma: float
+    delta: float
+    secret_key_hex: str
+    key_fingerprint: str
+    updated_at: datetime
+
+
+class WatermarkParamsUpdate(BaseModel):
+    """文档水印参数更新请求体"""
+
+    gamma: Optional[float] = Field(default=None, ge=0.05, le=0.95, description="绿名单比例")
+    delta: Optional[float] = Field(
+        default=None, ge=0.0, le=10.0, description="注入强度 (LLM 重采样偏移)"
+    )
+    regenerate_key: bool = Field(
+        default=False, description="重新生成独立密钥 (旧密钥注入的水印将无法再检出)"
+    )
+
+
+def _params_out(doc: Document) -> WatermarkParamsOut:
+    import hashlib
+
+    from config import settings
+
+    key = doc.watermark_key or settings.WATERMARK_SECRET_KEY
+    return WatermarkParamsOut(
+        gamma=doc.watermark_gamma,
+        delta=doc.watermark_delta,
+        secret_key_hex=key.hex(),
+        key_fingerprint=hashlib.sha256(key).hexdigest()[:16],
+        updated_at=doc.updated_at,
+    )
+
+
+@router.get("/documents/{doc_id}/params", response_model=WatermarkParamsOut)
+async def get_document_watermark_params(
+    doc_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+) -> WatermarkParamsOut:
+    """读取文档的水印参数 (γ / δ / 独立密钥指纹)"""
+    doc = await db.get(Document, doc_id)
+    if doc is None:
+        raise HTTPException(status_code=404, detail="Document not found")
+    return _params_out(doc)
+
+
+@router.patch("/documents/{doc_id}/params", response_model=WatermarkParamsOut)
+async def update_document_watermark_params(
+    doc_id: uuid.UUID,
+    payload: WatermarkParamsUpdate,
+    db: AsyncSession = Depends(get_db),
+) -> WatermarkParamsOut:
+    """
+    更新文档水印参数 (γ / δ / 重新生成密钥), 并写入溯源链日志。
+
+    regenerate_key=True 会生成新的独立密钥: 新注入的水印用新密钥,
+    但旧密钥注入的历史内容将无法再检出 (面板需提示用户)。
+    """
+    from config import settings
+    from services.watermark_engine import generate_secret_key
+
+    async with oplog_append_lock(doc_id):
+        doc = await db.get(Document, doc_id)
+        if doc is None:
+            raise HTTPException(status_code=404, detail="Document not found")
+
+        old_key = (doc.watermark_key or settings.WATERMARK_SECRET_KEY).hex()
+        if payload.gamma is not None:
+            doc.watermark_gamma = payload.gamma
+        if payload.delta is not None:
+            doc.watermark_delta = payload.delta
+        if payload.regenerate_key:
+            doc.watermark_key = generate_secret_key()
+        new_key = (doc.watermark_key or settings.WATERMARK_SECRET_KEY).hex()
+
+        # 溯源链日志: 参数变更本身也留痕 (op_type='watermark_params')
+        last_stmt = (
+            select(OpLog)
+            .where(OpLog.doc_id == doc.id)
+            .order_by(OpLog.created_at.desc())
+            .limit(1)
+        )
+        last = (await db.execute(last_stmt)).scalar_one_or_none()
+        prev_hash = last.current_hash if last else ""
+        operation = {
+            "action": "watermark_params_changed",
+            "gamma": doc.watermark_gamma,
+            "delta": doc.watermark_delta,
+            "key_regenerated": payload.regenerate_key,
+            "key_fingerprint": hashlib.sha256(bytes.fromhex(new_key)).hexdigest()[:16],
+        }
+        log = OpLog(
+            doc_id=doc.id,
+            user_id=doc.owner_id,
+            op_type="watermark_params",
+            operation=operation,
+            prev_hash=prev_hash,
+            current_hash="",
+        )
+        db.add(log)
+        await db.flush()
+        log.current_hash = OpLogHashChain.compute_hash(
+            prev_hash=prev_hash, operation=operation, timestamp=log.created_at
+        )
+        await db.commit()
+        await db.refresh(doc)
+
+    return _params_out(doc)
 
 
 @router.post("/documents/{doc_id}/detect", response_model=DetectResponse)
@@ -199,17 +334,24 @@ async def detect_document_watermark(
         if doc is None:
             raise HTTPException(status_code=404, detail="Document not found")
 
-        engine = WatermarkEngine()
+        # 步骤 12: 用文档独立密钥/参数构建检测引擎 (与注入端一致)
+        from config import settings
+
+        engine = WatermarkEngine(
+            gamma=doc.watermark_gamma,
+            delta=doc.watermark_delta,
+            secret_key=doc.watermark_key or settings.WATERMARK_SECRET_KEY,
+        )
         result = engine.detect_watermark(doc.content or "")
         model_name = result.get("model_name") or "kirchenbauer-greenlist"
 
-        # 1. 写入水印记录
+        # 1. 写入水印记录 (落库实际使用的文档密钥/参数, 供证据链还原)
         record = WatermarkRecord(
             doc_id=doc.id,
             model_name=model_name,
-            gamma=result.get("gamma", 0.5),
-            delta=result.get("delta", 2.0),
-            secret_key=os.urandom(32),
+            gamma=engine.gamma,
+            delta=engine.delta,
+            secret_key=doc.watermark_key or settings.WATERMARK_SECRET_KEY,
             token_seq={"watermark_chars": result["watermark_chars"], "detected": result["is_ai_generated"]},
         )
         db.add(record)
@@ -230,6 +372,11 @@ async def detect_document_watermark(
             "confidence": result["confidence"],
             "watermark_chars": result["watermark_chars"],
             "content_len": len(doc.content or ""),
+            "gamma": engine.gamma,
+            "delta": engine.delta,
+            "key_fingerprint": hashlib.sha256(
+                doc.watermark_key or settings.WATERMARK_SECRET_KEY
+            ).hexdigest()[:16],
         }
         log = OpLog(
             doc_id=doc.id,

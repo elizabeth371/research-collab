@@ -43,6 +43,7 @@ from sqlalchemy.dialects.postgresql import BYTEA as PG_BYTEA
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from database import Base
+from services.watermark_engine import generate_secret_key
 
 
 # ---------------------------------------------------------------------------
@@ -146,6 +147,17 @@ class Document(Base):
     watermark_status: Mapped[int] = mapped_column(
         SmallInteger, nullable=False, default=0
     )
+    # ---- 步骤 12: 每文档独立水印参数 (密钥 + 绿名单比例 + 注入强度) ----
+    # 新文档创建时自动生成独立密钥; 旧文档迁移时回填全局密钥 (兼容历史水印内容)
+    watermark_key: Mapped[Optional[bytes]] = mapped_column(
+        BYTEA_TYPE, nullable=True, default=generate_secret_key
+    )
+    watermark_gamma: Mapped[float] = mapped_column(
+        Float, nullable=False, default=0.5
+    )
+    watermark_delta: Mapped[float] = mapped_column(
+        Float, nullable=False, default=4.0
+    )
     agent_session_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID_TYPE, nullable=True
     )
@@ -215,7 +227,8 @@ class OpLog(Base):
     __tablename__ = "op_logs"
     __table_args__ = (
         CheckConstraint(
-            "op_type IN ('insert', 'delete', 'replace', 'ai_generate', 'watermark_checked')",
+            "op_type IN ('insert', 'delete', 'replace', 'ai_generate', "
+            "'watermark_checked', 'watermark_params')",
             name="ck_oplogs_type",
         ),
         Index("idx_oplogs_doc_created", "doc_id", "created_at"),

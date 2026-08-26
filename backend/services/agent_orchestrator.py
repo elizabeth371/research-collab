@@ -325,10 +325,11 @@ async def writer_agent_node(state: State) -> Dict[str, Any]:
     # top-N 候选, 本地按绿名单重新采样 —— 产出草稿天然带可检测水印。
     try:
         from services.llm_client import llm_client
-        from services.watermark_engine import WatermarkEngine
+        from services.watermark_engine import load_document_engine
 
         if llm_client.is_available():
-            wm = WatermarkEngine()
+            # 步骤 12: 按目标文档的独立密钥/参数构建引擎 (每文档水印互不可伪造)
+            wm = await load_document_engine(state.get("doc_id"))
             messages = llm_client.draft_messages(task, research)
             watermarked = await wm.generate_watermarked(llm_client, messages)
             if watermarked:

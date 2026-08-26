@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import type {
+  DocumentWatermarkParams,
   LLMGenerateResult,
   RobustnessResult,
   WatermarkDetectionResult,
@@ -8,8 +9,10 @@ import {
   detectDocumentWatermark,
   detectWatermark,
   generateWatermarkedText,
+  getDocWatermarkParams,
   getWatermarkRecords,
   runRobustnessTest,
+  updateDocWatermarkParams,
   type WatermarkRecordItem,
 } from '../../lib/api';
 import { appendAiText } from '../../lib/yjs';
@@ -25,9 +28,10 @@ import { getCollabSession } from '../../lib/collab';
  *     可一键插入文档 (蓝色 AI 标记) —— 步骤 9/10 闭环
  *  3. 对抗鲁棒性实验: 对带水印文本施加攻击矩阵 (删除/截断/同义改写/
  *     噪声/乱序/可选回译), 展示检出衰减 —— 步骤 11 (论文实验数据)
- *  4. 支持粘贴任意文本进行检测
- *  5. 可视化置信度 (进度条 + 判定徽标 + z 值/绿名单占比统计量)
- *  6. 展示该文档的水印检测历史记录
+ *  4. 文档水印参数: 每文档独立密钥 (指纹/hex) + γ/δ 滑块, 变更留痕 —— 步骤 12
+ *  5. 支持粘贴任意文本进行检测
+ *  6. 可视化置信度 (进度条 + 判定徽标 + z 值/绿名单占比统计量)
+ *  7. 展示该文档的水印检测历史记录
  */
 interface WatermarkPanelProps {
   docId: string;
@@ -55,6 +59,82 @@ export function WatermarkPanel({ docId, getDocText }: WatermarkPanelProps) {
   const [robLoading, setRobLoading] = useState(false);
   const [robError, setRobError] = useState<string | null>(null);
   const [robIncludeTranslation, setRobIncludeTranslation] = useState(false);
+
+  // ---- 文档水印参数状态 (步骤 12) ----
+  const [wmParams, setWmParams] = useState<DocumentWatermarkParams | null>(null);
+  const [gammaVal, setGammaVal] = useState(0.5);
+  const [deltaVal, setDeltaVal] = useState(4.0);
+  const [paramsLoading, setParamsLoading] = useState(false);
+  const [paramsSaving, setParamsSaving] = useState(false);
+  const [paramsMsg, setParamsMsg] = useState<string | null>(null);
+  const [paramsErr, setParamsErr] = useState<string | null>(null);
+  const [showKey, setShowKey] = useState(false);
+
+  const refreshParams = useCallback(async () => {
+    if (!docId) return;
+    setParamsLoading(true);
+    try {
+      const p = await getDocWatermarkParams(docId);
+      setWmParams(p);
+      setGammaVal(p.gamma);
+      setDeltaVal(p.delta);
+      setParamsErr(null);
+    } catch {
+      // 参数加载失败不阻断主流程
+    } finally {
+      setParamsLoading(false);
+    }
+  }, [docId]);
+
+  useEffect(() => {
+    // docId 切换时先清空旧文档参数, 避免异步加载期间显示上一文档的陈旧指纹/密钥
+    setWmParams(null);
+    setParamsMsg(null);
+    setParamsErr(null);
+    setShowKey(false);
+    refreshParams();
+  }, [refreshParams]);
+
+  /** 保存文档水印参数 (γ / δ), 写溯源链日志 */
+  const saveParams = async () => {
+    if (!wmParams) return;
+    setParamsMsg(null);
+    setParamsErr(null);
+    setParamsSaving(true);
+    try {
+      const p = await updateDocWatermarkParams(docId, {
+        gamma: gammaVal,
+        delta: deltaVal,
+      });
+      setWmParams(p);
+      setGammaVal(p.gamma);
+      setDeltaVal(p.delta);
+      setParamsMsg(
+        `已保存 γ=${p.gamma.toFixed(2)} / δ=${p.delta.toFixed(1)}，变更已写入溯源链`
+      );
+    } catch (e) {
+      setParamsErr(e instanceof Error ? e.message : '保存参数失败');
+    } finally {
+      setParamsSaving(false);
+    }
+  };
+
+  /** 重新生成文档独立密钥 (旧密钥注入的水印将无法再检出) */
+  const regenerateKey = async () => {
+    if (!wmParams) return;
+    setParamsMsg(null);
+    setParamsErr(null);
+    setParamsSaving(true);
+    try {
+      const p = await updateDocWatermarkParams(docId, { regenerateKey: true });
+      setWmParams(p);
+      setParamsMsg('已生成新独立密钥（指纹已变更），此后再注入的水印用新密钥');
+    } catch (e) {
+      setParamsErr(e instanceof Error ? e.message : '重新生成密钥失败');
+    } finally {
+      setParamsSaving(false);
+    }
+  };
 
   const refreshRecords = useCallback(async () => {
     try {
@@ -106,7 +186,8 @@ export function WatermarkPanel({ docId, getDocText }: WatermarkPanelProps) {
     try {
       const started = performance.now();
       // 500 token (~500字): z 随 sqrt(文本长度) 增长, 提高检出余量 (z 实测 4-11)
-      const r = await generateWatermarkedText(genPrompt.trim(), 500);
+      // 步骤 12: 传 docId 使用文档独立密钥/参数注入, 插入文档后检测口径一致
+      const r = await generateWatermarkedText(genPrompt.trim(), 500, docId);
       r.detect.latencyMs = Math.round(performance.now() - started);
       setGenResult(r);
     } catch (e) {
@@ -138,7 +219,8 @@ export function WatermarkPanel({ docId, getDocText }: WatermarkPanelProps) {
     setRobResult(null);
     setRobLoading(true);
     try {
-      const r = await runRobustnessTest(text, robIncludeTranslation);
+      // 步骤 12: 传 docId 使检测口径与文档密钥一致 (生成/插入/检测闭环)
+      const r = await runRobustnessTest(text, robIncludeTranslation, docId);
       setRobResult(r);
     } catch (e) {
       setRobError(e instanceof Error ? e.message : '鲁棒性测试失败');
@@ -165,6 +247,109 @@ export function WatermarkPanel({ docId, getDocText }: WatermarkPanelProps) {
         >
           {loading ? '检测中...' : '检测当前文档全文并留痕'}
         </button>
+      </div>
+
+      {/* 文档水印参数 (步骤 12: 每文档独立密钥) */}
+      <div className="rounded-lg border border-slate-200 bg-slate-50/60 p-3 space-y-2">
+        <div className="flex items-center justify-between">
+          <h4 className="text-xs font-semibold text-slate-700">
+            🔑 文档水印参数
+          </h4>
+          {paramsLoading && (
+            <span className="text-[10px] text-slate-400">加载中...</span>
+          )}
+          {wmParams && (
+            <span className="text-[10px] font-mono text-slate-400">
+              指纹 {wmParams.key_fingerprint}
+            </span>
+          )}
+        </div>
+
+        {wmParams ? (
+          <div className="space-y-2">
+            {/* γ 滑块 */}
+            <div>
+              <div className="flex items-center justify-between text-[11px] text-slate-500 mb-1">
+                <span>绿名单比例 γ</span>
+                <span className="font-mono font-medium text-slate-700">
+                  {gammaVal.toFixed(2)}
+                </span>
+              </div>
+              <input
+                type="range"
+                min={0.05}
+                max={0.95}
+                step={0.05}
+                value={gammaVal}
+                onChange={(e) => setGammaVal(Number(e.target.value))}
+                className="w-full accent-slate-700"
+              />
+            </div>
+            {/* δ 滑块 */}
+            <div>
+              <div className="flex items-center justify-between text-[11px] text-slate-500 mb-1">
+                <span>注入强度 δ (LLM 重采样偏移)</span>
+                <span className="font-mono font-medium text-slate-700">
+                  {deltaVal.toFixed(1)}
+                </span>
+              </div>
+              <input
+                type="range"
+                min={0.5}
+                max={8}
+                step={0.5}
+                value={deltaVal}
+                onChange={(e) => setDeltaVal(Number(e.target.value))}
+                className="w-full accent-slate-700"
+              />
+            </div>
+            {/* 独立密钥 */}
+            <div>
+              <button
+                onClick={() => setShowKey((v) => !v)}
+                className="text-[10px] text-slate-500 hover:text-slate-700 underline underline-offset-2"
+              >
+                {showKey ? '隐藏密钥' : '显示密钥 (64 hex)'}
+              </button>
+              {showKey && (
+                <div className="mt-1 font-mono text-[10px] text-slate-500 bg-white rounded border border-slate-200 px-2 py-1.5 break-all select-all">
+                  {wmParams.secret_key_hex}
+                </div>
+              )}
+            </div>
+            <div className="flex gap-1.5">
+              <button
+                onClick={() => void saveParams()}
+                disabled={paramsSaving}
+                className="flex-1 text-[11px] font-medium py-1.5 rounded-md bg-slate-700 text-white hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              >
+                {paramsSaving ? '保存中...' : '保存参数并留痕'}
+              </button>
+              <button
+                onClick={() => void regenerateKey()}
+                disabled={paramsSaving}
+                className="flex-1 text-[11px] font-medium py-1.5 rounded-md border border-amber-300 text-amber-700 bg-amber-50 hover:bg-amber-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              >
+                重新生成密钥
+              </button>
+            </div>
+            <p className="text-[9px] leading-relaxed text-slate-400">
+              ⚠️ 重新生成密钥后，旧密钥注入的水印将无法再检出（新注入的内容用新密钥）。参数与密钥变更均写入溯源链。
+            </p>
+            {paramsMsg && (
+              <div className="text-[10px] text-green-600 bg-green-50 rounded px-2 py-1.5">
+                ✅ {paramsMsg}
+              </div>
+            )}
+            {paramsErr && (
+              <div className="text-[10px] text-red-500 bg-red-50 rounded px-2 py-1.5">
+                {paramsErr}
+              </div>
+            )}
+          </div>
+        ) : (
+          <p className="text-[10px] text-slate-400">文档参数加载失败或不可用</p>
+        )}
       </div>
 
       {/* AI 写作 + 水印注入演示 (步骤 10 闭环) */}

@@ -1,5 +1,6 @@
 import type {
   Document,
+  DocumentWatermarkParams,
   LLMGenerateResult,
   RobustnessResult,
   WatermarkDetectionResult,
@@ -470,24 +471,32 @@ export const detectDocumentWatermark = async (
 /**
  * 真实 LLM 生成 + 水印注入 (POST /api/watermark/generate-llm)
  * 需后端配置 LLM_API_KEY; 无 Key / 调用失败时后端返回 503 (抛错)。
+ * 步骤 12: 传入 docId 时使用该文档的独立密钥/参数注入 (插入后可检出)。
  */
 export const generateWatermarkedText = async (
   prompt: string,
-  maxTokens = 300
+  maxTokens = 300,
+  docId?: string
 ): Promise<LLMGenerateResult> => {
   const raw = await request<{
     text: string;
     chars: number;
     engine: string;
+    doc_id?: string | null;
     detect: BackendDetectResponse;
   }>('/watermark/generate-llm', {
     method: 'POST',
-    body: JSON.stringify({ prompt, max_tokens: maxTokens }),
+    body: JSON.stringify({
+      prompt,
+      max_tokens: maxTokens,
+      ...(docId ? { doc_id: docId } : {}),
+    }),
   });
   return {
     text: raw.text,
     chars: raw.chars,
     engine: raw.engine,
+    docId: raw.doc_id ?? null,
     detect: {
       docId: '',
       watermarkChars: raw.detect.watermark_chars,
@@ -505,15 +514,48 @@ export const generateWatermarkedText = async (
  * 水印对抗鲁棒性实验 (POST /api/watermark/robustness)
  * 对已注入水印的文本施加攻击矩阵 (删除/截断/同义替换/噪声/乱序/可选回译),
  * 返回基线 + 各攻击后的 z 统计量与检出判定, 供论文实验表与面板可视化。
+ * 步骤 12: 传入 docId 时用文档独立密钥检测 (与生成端一致)。
  */
 export const runRobustnessTest = async (
   text: string,
-  includeTranslation = false
+  includeTranslation = false,
+  docId?: string
 ): Promise<RobustnessResult> =>
   request<RobustnessResult>('/watermark/robustness', {
     method: 'POST',
-    body: JSON.stringify({ text, include_translation: includeTranslation }),
+    body: JSON.stringify({
+      text,
+      include_translation: includeTranslation,
+      ...(docId ? { doc_id: docId } : {}),
+    }),
   });
+
+/** 获取文档水印参数 (γ / δ / 独立密钥指纹, 步骤 12) */
+export const getDocWatermarkParams = (
+  docId: string
+): Promise<DocumentWatermarkParams> =>
+  request<DocumentWatermarkParams>(
+    `/watermark/documents/${docId}/params`
+  );
+
+/** 更新文档水印参数 (γ / δ / 重新生成密钥, 步骤 12) */
+export const updateDocWatermarkParams = (
+  docId: string,
+  payload: { gamma?: number; delta?: number; regenerateKey?: boolean }
+): Promise<DocumentWatermarkParams> =>
+  request<DocumentWatermarkParams>(
+    `/watermark/documents/${docId}/params`,
+    {
+      method: 'PATCH',
+      body: JSON.stringify({
+        ...(payload.gamma !== undefined && { gamma: payload.gamma }),
+        ...(payload.delta !== undefined && { delta: payload.delta }),
+        ...(payload.regenerateKey !== undefined && {
+          regenerate_key: payload.regenerateKey,
+        }),
+      }),
+    }
+  );
 
 /** 水印记录条目 (后端 WatermarkRecord, snake_case) */
 export interface WatermarkRecordItem {

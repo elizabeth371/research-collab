@@ -133,6 +133,8 @@ export interface LLMGenerateResult {
   text: string;
   chars: number;
   engine: string;
+  /** 步骤 12: 生成时使用的文档 ID (用文档独立密钥注入时非空) */
+  docId?: string | null;
   detect: WatermarkDetectionResult;
 }
 
@@ -168,6 +170,19 @@ export interface RobustnessResult {
   attacks: RobustnessAttackRow[];
   summary: RobustnessSummary;
   translation_failed: boolean;
+}
+
+// ==================== 每文档独立水印参数 (步骤 12) ====================
+
+/** 文档水印参数 (每文档独立密钥 / γ / δ) */
+export interface DocumentWatermarkParams {
+  gamma: number;
+  delta: number;
+  /** 密钥 hex (32 字节 -> 64 字符) */
+  secret_key_hex: string;
+  /** 密钥指纹 sha256 前 16 位 (身份标识, 不回传原始密钥) */
+  key_fingerprint: string;
+  updated_at: string;
 }
 
 // ==================== 写稿人润色 / 审稿人红牌 ====================

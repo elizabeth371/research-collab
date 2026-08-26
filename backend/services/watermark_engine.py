@@ -60,6 +60,9 @@ class WatermarkEngine:
     ) -> None:
         self.gamma: float = gamma if gamma is not None else settings.WATERMARK_GAMMA
         self.delta: float = delta if delta is not None else settings.WATERMARK_DELTA
+        # 步骤 12: 显式传入 delta 的引擎 (每文档参数) 在 LLM 重采样时
+        # 使用自身 delta; 未显式指定的全局引擎仍走配置的 LLM 校准值 4.0
+        self._explicit_delta: bool = delta is not None
         self.secret_key: bytes = (
             secret_key if secret_key is not None else settings.WATERMARK_SECRET_KEY
         )
@@ -451,7 +454,12 @@ class WatermarkEngine:
         )
         if not candidates:
             return None
-        wm_delta = delta if delta is not None else settings.WATERMARK_LLM_DELTA
+        # 步骤 12: 每文档引擎使用自身 delta; 全局引擎使用 LLM 校准值
+        wm_delta = (
+            delta
+            if delta is not None
+            else (self.delta if self._explicit_delta else settings.WATERMARK_LLM_DELTA)
+        )
         text = self.resample_with_watermark(
             candidates, temperature=1.0, delta=wm_delta, rng=rng
         ).strip()
@@ -462,3 +470,36 @@ class WatermarkEngine:
 def generate_secret_key() -> bytes:
     """生成随机水印密钥 (32 字节)"""
     return secrets.token_bytes(32)
+
+
+async def load_document_engine(doc_id: Optional[str]) -> WatermarkEngine:
+    """
+    按文档参数构建水印引擎 (步骤 12: 每文档独立密钥 / γ / δ)。
+
+    从数据库读取文档的 watermark_key / watermark_gamma / watermark_delta,
+    构建检测与注入两端一致的引擎; 文档不存在或未配置密钥时回退全局配置。
+
+    Args:
+        doc_id: 文档 ID (可为 None, 表示全局演示场景)
+
+    Returns:
+        WatermarkEngine 实例 (文档参数或全局默认)
+    """
+    if doc_id:
+        try:
+            import uuid as _uuid
+
+            from database import async_session_factory
+            from models import Document
+
+            async with async_session_factory() as _session:
+                doc = await _session.get(Document, _uuid.UUID(str(doc_id)))
+                if doc is not None and doc.watermark_key:
+                    return WatermarkEngine(
+                        gamma=doc.watermark_gamma or settings.WATERMARK_GAMMA,
+                        delta=doc.watermark_delta or settings.WATERMARK_DELTA,
+                        secret_key=doc.watermark_key,
+                    )
+        except Exception:  # 库不可用/文档缺失 -> 回退全局引擎
+            pass
+    return WatermarkEngine()
