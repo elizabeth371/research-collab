@@ -30,11 +30,14 @@ AgentOrchestrator: 基于 LangGraph 的多 Agent 协同编排
 """
 
 import asyncio
+import logging
 import re
 import uuid
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Callable, Dict, List, Literal, Optional, TypedDict
+from typing import Any, Callable, Dict, List, Literal, Optional, Set, TypedDict
+
+logger = logging.getLogger("uvicorn.error")
 
 # 检索关键词过滤: 指令中的常见功能性/停用词, 不参与文献匹配
 _SEARCH_STOPWORDS = {
@@ -304,10 +307,19 @@ async def writer_agent_node(state: State) -> Dict[str, Any]:
             f"修复红牌 {result['red_cards_before']} 项：{fix_summary}；{status_note}\n"
             f"{new_draft}"
         )
+        # 复检结果带内容指纹随 state 传递: 下一轮 supervisor 节点直接复用,
+        # 免去对同一份修订稿的重复审查 (每轮修订少跑一次全文审查)
+        review_after = result.get("review_after")
+        if review_after:
+            review_after = {
+                **review_after,
+                "_draft_fingerprint": _draft_fingerprint(new_draft),
+            }
         return {
             "draft": new_draft,
             "review_rounds": rounds + 1,
             "rewrite_log": [*(state.get("rewrite_log") or []), log_entry],
+            **({"review_result": review_after} if review_after else {}),
             "status": AgentStatus.COMPLETED.value,
             "metadata": {**(state.get("metadata") or {}), "writer_engine": "rewrite-rule"},
             "messages": [
@@ -373,6 +385,13 @@ async def writer_agent_node(state: State) -> Dict[str, Any]:
     }
 
 
+def _draft_fingerprint(text: str) -> str:
+    """草稿内容指纹 (sha1 前 16 位): 标记审查结果对应的草稿版本"""
+    import hashlib
+
+    return hashlib.sha1((text or "").encode("utf-8")).hexdigest()[:16]
+
+
 async def supervisor_agent_node(state: State) -> Dict[str, Any]:
     """
     SupervisorAgent 节点 (导师审稿 / 质量控制):
@@ -381,16 +400,26 @@ async def supervisor_agent_node(state: State) -> Dict[str, Any]:
       (红牌/黄牌分级 + 段落定位, 覆盖引用格式/编号连续性/参考文献/篇幅/论据支撑)
     - 输出结构化评审意见 (红牌=error 级, 黄牌=warning 级)
 
+    复用优化: Writer 修订 (RewriteEngine) 的复检结果携带内容指纹,
+    若其正对应当前草稿则直接复用, 不再对同一份草稿重复审查。
+
     TODO:
       - 接入 LLM 语义评审
       - 调用 WatermarkEngine 检测 AI 内容比例
     """
     print("[SupervisorAgent] 正在审阅研究成果与草稿...")
 
-    from services.academic_review import AcademicReviewEngine
-
     draft = state.get("draft", "")
-    review = AcademicReviewEngine.review_document(draft)
+
+    cached = state.get("review_result") or {}
+    if cached.get("_draft_fingerprint") == _draft_fingerprint(draft):
+        # Writer 刚复检过这份草稿: 复用其结果 (去掉内部标记字段)
+        review = {k: v for k, v in cached.items() if k != "_draft_fingerprint"}
+    else:
+        from services.academic_review import AcademicReviewEngine
+
+        review = AcademicReviewEngine.review_document(draft)
+
     stats = review["stats"]
     red = review["red_cards"]
     yellow = review["yellow_cards"]
@@ -434,6 +463,9 @@ async def supervisor_agent_node(state: State) -> Dict[str, Any]:
 # ---------------------------------------------------------------------------
 # 审稿红牌自动重写: 单轮重写最多迭代轮数 (防死循环)
 _MAX_REWRITE_ROUNDS = 2
+# 群聊会话消息历史上限: 多轮追问时 messages 逐轮累积, 超出保留最近 N 条,
+# 防止常驻内存的会话状态无界增长 (前端单次只拉最近 50 条, 不受影响)
+_MAX_SESSION_MESSAGES = 200
 
 
 def should_retry(state: State) -> Literal["writer", "supervisor"]:
@@ -538,6 +570,8 @@ class OrchestratorService:
         # 竞态覆盖 (两个请求同时读到旧历史, 后完成者覆盖先完成者)
         self._locks: Dict[str, asyncio.Lock] = {}
         self._MAX_SESSIONS = 200  # 内存会话上限, 超出淘汰最旧
+        # 后台编排任务的强引用集 (防止 create_task 的任务被 GC 中途取消)
+        self._background_tasks: Set[asyncio.Task] = set()
 
     async def start_session(
         self,
@@ -559,15 +593,12 @@ class OrchestratorService:
                           未传或不存在时创建新会话。
 
         Returns:
-            session_id (UUID 字符串)
-
-        TODO:
-          - 实际运行时: 创建 asyncio.Task 后台执行图,
-            StreamBufferService 将结果写入 Yjs 并推送 WebSocket
-          - 此处为骨架: 直接同步执行图并更新会话状态
+            session_id (UUID 字符串)。图在后台任务中执行, 前端通过
+            /sessions/{id}/state 与 /sessions/{id}/messages 轮询进度与结果。
         """
         # 群聊会话复用: 继承既有消息历史 (节点以 *state.get("messages") 追加)
-        # 先解析会话键, 再用会话级锁串行化并发 invoke, 避免历史竞态覆盖
+        # 锁只覆盖「快照历史 -> 注册会话」的快速段; 图执行由 _run_session
+        # 自行持锁并在执行前重新快照, 保证同会话排队 invoke 不丢历史
         key = session_id if (session_id and session_id in self._sessions) else str(uuid.uuid4())
         lock = self._locks.setdefault(key, asyncio.Lock())
         async with lock:
@@ -596,26 +627,71 @@ class OrchestratorService:
                 "state": initial_state,
             }
 
-            # 骨架: 同步执行图 (生产环境改为后台任务 + WebSocket 推送)
-            final_state = await self._graph.ainvoke(initial_state)
-
-            self._sessions[key].update(
-                {
-                    "status": final_state.get("status", AgentStatus.COMPLETED.value),
-                    "state": final_state,
-                }
-            )
-
-            # 内存上限: 超出时淘汰最旧会话 (含其锁), 防止长时间运行内存膨胀
-            if len(self._sessions) > self._MAX_SESSIONS:
-                oldest = next(iter(self._sessions))
-                self._sessions.pop(oldest)
-                self._locks.pop(oldest, None)
-
-        # TODO: 将 final_output 通过 StreamBufferService 写入 Yjs 文档
-        #       并广播至 /ws/{doc_id} 的客户端
+        # 图执行放入后台任务: /invoke 立即返回 202, 不阻塞请求
+        # (单次编排最多 2 次 LLM 调用, 同步执行可阻塞请求达数十秒)
+        task = asyncio.create_task(self._run_session(key, initial_state))
+        # 持有任务引用防止被 GC, 结束后自动移除
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
 
         return key
+
+    async def _run_session(self, key: str, base_state: State) -> None:
+        """后台执行一次编排图: 持会话锁运行, 完成置 COMPLETED / 失败置 FAILED。
+
+        锁语义: 同会话的多个 invoke 排队执行; 获得锁后重新快照最新消息历史,
+        使排队请求基于前一轮的完整输出继续 (与原同步实现的历史累积语义一致)。
+        """
+        lock = self._locks.setdefault(key, asyncio.Lock())
+        async with lock:
+            # 排队场景: 执行前取最新历史 (可能包含上一轮后台任务刚完成的输出)
+            session = self._sessions.get(key)
+            if session is not None:
+                base_state["messages"] = (
+                    session.get("state", {}).get("messages", []) or base_state.get("messages", [])
+                )
+
+            try:
+                final_state = await self._graph.ainvoke(base_state)
+                # 消息历史上限: 只保留最近 N 条 (下一轮追问继承截断后的历史)
+                msgs = final_state.get("messages")
+                if isinstance(msgs, list) and len(msgs) > _MAX_SESSION_MESSAGES:
+                    final_state["messages"] = msgs[-_MAX_SESSION_MESSAGES:]
+                if session is not None:
+                    session.update(
+                        {
+                            "status": final_state.get(
+                                "status", AgentStatus.COMPLETED.value
+                            ),
+                            "state": final_state,
+                        }
+                    )
+            except Exception as exc:
+                logger.exception("Agent 会话 %s 执行失败: %s", key, exc)
+                session = self._sessions.get(key)
+                if session is not None:
+                    failed_messages = list(base_state.get("messages", []))
+                    failed_messages.append(
+                        {
+                            "agent": "supervisor",
+                            "role": "agent",
+                            "content": f"⚠️ 执行失败: {exc}",
+                            "watermarked": False,
+                        }
+                    )
+                    session["status"] = AgentStatus.FAILED.value
+                    session["state"] = {
+                        **base_state,
+                        "messages": failed_messages,
+                        "status": AgentStatus.FAILED.value,
+                    }
+            finally:
+                # 内存上限: 超出时淘汰最旧会话 (含其锁); 不淘汰正在收尾的自身
+                if len(self._sessions) > self._MAX_SESSIONS:
+                    oldest = next(iter(self._sessions))
+                    if oldest != key:
+                        self._sessions.pop(oldest)
+                        self._locks.pop(oldest, None)
 
     def get_session(self, session_id: str) -> Optional[Dict[str, Any]]:
         """查询会话状态"""

@@ -96,9 +96,7 @@ class PolishEngine:
     # 多字词优先匹配: 按长度降序 (避免 "非常" 先吃掉 "非常不错" 中的 "非常")
     _PHRASE_ITEMS: list[tuple[str, str]] = sorted(
         PHRASE_UPGRADES.items(), key=lambda kv: len(kv[0]), reverse=True
-    )
-
-    # ---- 2. 冗余/形式动词清理 (保守): ----
+    )    # ---- 2. 冗余/形式动词清理 (保守): ----
     # "进行了X" 若直接删 "X" 前的动词会破坏动宾结构 ("本文实验。" 病句),
     # 故仅升级形式动词 "进行了" -> "开展了", 以及指示词学术化。
     # 不含 "的内容" -> "内容" 这类规则 —— "生成内容的溯源" 中删 "的" 会
@@ -132,6 +130,25 @@ class PolishEngine:
         ("本文主要讨论", "本文聚焦于"),
         ("本文主要研究", "本文聚焦于"),
     ]
+
+    # ---- 词表规则合并为单次正则扫描 ----
+    # 句式/措辞/冗余三张词表 (~60 条) 若逐条 str.replace, 每条要对全文
+    # 扫描两遍 (in 判断 + replace); 合并为一个"最长优先"交替正则后,
+    # 全文只需扫描一遍。各表替换产物均不含其他表的关键词 (无级联),
+    # 单次扫描与逐条替换的输出完全一致。
+    _WORD_RULES: list[tuple[str, str, str]] = sorted(
+        (
+            *[(k, v, "sentence") for k, v in SENTENCE_PATTERNS],
+            *[(k, v, "phrasing") for k, v in _PHRASE_ITEMS],
+            *[(k, v, "redundancy") for k, v in REDUNDANCY_RULES],
+        ),
+        key=lambda kv: len(kv[0]),
+        reverse=True,
+    )
+    _WORD_RULE_MAP: dict[str, tuple[str, str]] = {k: (v, t) for k, v, t in _WORD_RULES}
+    _WORD_RULE_RE: re.Pattern[str] = re.compile(
+        "|".join(re.escape(k) for k, _, _ in _WORD_RULES)
+    )
 
     # 断言词表 (供审稿引擎引用): 疑似结论断言但段内无引用支撑
     ASSERTION_WORDS: tuple[str, ...] = (
@@ -190,23 +207,18 @@ class PolishEngine:
         changes: List[PolishChange] = []
         current = text
 
-        # ---- 4. 句式 (先于措辞表, 长短语优先) ----
-        for before, after in cls.SENTENCE_PATTERNS:
-            if before in current:
-                current = current.replace(before, after)
-                changes.append({"type": "sentence", "before": before, "after": after})
+        # ---- 4+1+2. 句式 / 措辞 / 冗余: 单次正则扫描 (最长优先匹配) ----
+        rule_map = cls._WORD_RULE_MAP
 
-        # ---- 1. 措辞升级 ----
-        for before, after in cls._PHRASE_ITEMS:
-            if before in current:
-                current = current.replace(before, after)
-                changes.append({"type": "phrasing", "before": before, "after": after})
+        def _apply_word_rule(m: "re.Match[str]") -> str:
+            src = m.group(0)
+            after, rule_type = rule_map[src]
+            changes.append(
+                {"type": rule_type, "before": src, "after": after}
+            )
+            return after
 
-        # ---- 2. 冗余清理 ----
-        for before, after in cls.REDUNDANCY_RULES:
-            if before in current:
-                current = current.replace(before, after)
-                changes.append({"type": "redundancy", "before": before, "after": after})
+        current = cls._WORD_RULE_RE.sub(_apply_word_rule, current)
 
         # ---- 3. 标点归一 ----
         for before, after in cls.PUNCT_RULES:

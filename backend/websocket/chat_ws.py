@@ -7,7 +7,8 @@ WebSocket 聊天服务 (步骤 16)
 协议 (JSON 文本帧):
   - 客户端 -> 服务端: {"type":"chat","content":"...","user_id":"...","username":"..."}
   - 服务端 -> 房间内所有连接 (含发送者, 前端不重复追加):
-      {"type":"chat","content":"...","user_id":"...","username":"..."}
+      {"type":"chat","id":"<消息ID>","content":"...","user_id":"...","username":"..."}
+      (id 为服务端生成的消息 ID, 供前端去重; 持久化失败时缺失)
 
 行为:
   - 连接按 doc_id 分组为房间, 断开自动移出;
@@ -17,7 +18,7 @@ WebSocket 聊天服务 (步骤 16)
 
 import logging
 import uuid
-from typing import Dict, Set
+from typing import Dict, Optional, Set
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
@@ -29,15 +30,19 @@ chat_router = APIRouter()
 _rooms: Dict[str, Set[WebSocket]] = {}
 
 
-async def _persist_message(doc_id: str, user_id: str, username: str, content: str) -> None:
-    """将聊天消息写入 chat_messages 表 (失败仅记录, 不阻断广播)"""
+async def _persist_message(
+    doc_id: str, user_id: str, username: str, content: str
+) -> Optional[str]:
+    """将聊天消息写入 chat_messages 表, 返回消息 ID (失败仅记录, 不阻断广播)"""
     from database import async_session_factory
     from models import ChatMessage
 
     try:
+        msg_id = uuid.uuid4()
         async with async_session_factory() as db:
             db.add(
                 ChatMessage(
+                    id=msg_id,
                     doc_id=uuid.UUID(doc_id),
                     user_id=uuid.UUID(user_id) if user_id else None,
                     username=username,
@@ -45,8 +50,10 @@ async def _persist_message(doc_id: str, user_id: str, username: str, content: st
                 )
             )
             await db.commit()
+        return str(msg_id)
     except Exception as exc:  # noqa: BLE001
         logger.warning("聊天消息持久化失败 (仅广播): %s", exc)
+        return None
 
 
 @chat_router.websocket("/ws/chat/{doc_id}")
@@ -65,15 +72,16 @@ async def chat_endpoint(websocket: WebSocket, doc_id: str) -> None:
             user_id = str(data.get("user_id") or "")
             username = str(data.get("username") or "匿名")[:128]
 
-            await _persist_message(doc_id, user_id, username, content)
-
-            # 广播给房间内所有连接 (含发送者)
+            # 广播给房间内所有连接 (含发送者); id 供前端按 ID 去重
+            msg_id = await _persist_message(doc_id, user_id, username, content)
             payload = {
                 "type": "chat",
                 "content": content,
                 "user_id": user_id,
                 "username": username,
             }
+            if msg_id:
+                payload["id"] = msg_id
             for conn in list(room):
                 try:
                     await conn.send_json(payload)

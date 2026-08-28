@@ -17,8 +17,9 @@ import asyncio
 import hashlib
 import json
 import threading
+import time
 from datetime import datetime
-from typing import Dict
+from typing import Dict, Tuple
 
 from config import settings
 
@@ -33,8 +34,14 @@ from config import settings
 # 修复: 按 doc_id 粒度的进程内 asyncio.Lock, 将"读文档/读链尾 -> 追加 ->
 # 提交"整段串行化, 从根上消除读后写竞态。对已存在的 SQLite 库同样生效
 # (无需迁移 schema —— 串行化后 UNIQUE 约束永不被并发触发)。
-_oplog_append_locks: Dict[str, asyncio.Lock] = {}
+#
+# 锁表回收: 表项 (锁, 最近取用时刻) 随访问过的文档数增长。取锁时若表
+# 超过阈值, 回收闲置超过 _LOCK_IDLE_SECONDS 的表项 —— 闲置如此之久不可能是
+# 在途请求刚取走的锁, 不会引入并发回退。
+_oplog_append_locks: Dict[str, Tuple[asyncio.Lock, float]] = {}
 _oplog_append_locks_guard = threading.Lock()
+_MAX_LOCK_TABLE_SIZE = 1024
+_LOCK_IDLE_SECONDS = 60.0
 
 
 def oplog_append_lock(doc_id) -> asyncio.Lock:
@@ -44,12 +51,23 @@ def oplog_append_lock(doc_id) -> asyncio.Lock:
     「读链尾 -> 写 OpLog -> commit」的完整事务, 锁在提交后释放。
     """
     key = str(doc_id)
+    now = time.monotonic()
     with _oplog_append_locks_guard:
-        lock = _oplog_append_locks.get(key)
-        if lock is None:
-            lock = asyncio.Lock()
-            _oplog_append_locks[key] = lock
-        return lock
+        entry = _oplog_append_locks.get(key)
+        if entry is None:
+            if len(_oplog_append_locks) >= _MAX_LOCK_TABLE_SIZE:
+                stale = [
+                    k
+                    for k, (_, last_used) in _oplog_append_locks.items()
+                    if now - last_used > _LOCK_IDLE_SECONDS
+                ]
+                for k in stale:
+                    del _oplog_append_locks[k]
+            entry = (asyncio.Lock(), now)
+        else:
+            entry = (entry[0], now)  # 刷新最近取用时刻
+        _oplog_append_locks[key] = entry
+        return entry[0]
 
 
 class OpLogHashChain:

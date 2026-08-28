@@ -37,6 +37,9 @@ class RewriteResult(TypedDict):
     red_cards_before: int
     red_cards_after: int
     passed_after: bool
+    # 重写后全文的完整审查结果 (复检产物): 编排器的 supervisor 节点
+    # 直接复用它, 避免对同一份修订稿重复审查
+    review_after: dict
 
 
 class RewriteEngine:
@@ -77,7 +80,7 @@ class RewriteEngine:
 
         Returns:
             RewriteResult: {text, changes, engine, red_cards_before,
-                            red_cards_after, passed_after}
+                            red_cards_after, passed_after, review_after}
         """
         review = review_result or AcademicReviewEngine.review_document(text)
         red_before = review["red_cards"]
@@ -96,6 +99,7 @@ class RewriteEngine:
                 "red_cards_before": red_before,
                 "red_cards_after": red_before,
                 "passed_after": False,
+                "review_after": review,
             }
 
         if red_before == 0:
@@ -106,6 +110,7 @@ class RewriteEngine:
                 "red_cards_before": 0,
                 "red_cards_after": 0,
                 "passed_after": True,
+                "review_after": review,
             }
 
         # ---- 1. 引用编号不连续 -> 按首次出现顺序重排 ----
@@ -126,6 +131,7 @@ class RewriteEngine:
             "red_cards_before": red_before,
             "red_cards_after": review_after["red_cards"],
             "passed_after": review_after["red_cards"] == 0,
+            "review_after": review_after,
         }
 
     # ------------------------------------------------------------------

@@ -5,11 +5,12 @@
 对外提供 REST 端点：检测文本是否包含 AI 水印、获取文档溯源链。
 """
 
+import asyncio
 import base64
-import hashlib
 import os
 import uuid
 from datetime import datetime, timezone
+from functools import lru_cache
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -29,10 +30,59 @@ router = APIRouter(prefix="/api/watermark", tags=["watermark"])
 # ---------------------------------------------------------------------------
 # Pydantic Schemas
 # ---------------------------------------------------------------------------
+# 单次检测的文本长度上限: 检测为 CPU 密集计算 (对全文建 bigram 表 + 逐对
+# 掩码查表), 无上限的请求可被用来打满 CPU (每次 ~O(文本长 × 词表操作))
+MAX_DETECT_TEXT_LENGTH = 50000
+
+
 class DetectRequest(BaseModel):
     """水印检测请求体"""
 
-    text: str = Field(..., min_length=1, description="待检测文本")
+    text: str = Field(
+        ...,
+        min_length=1,
+        max_length=MAX_DETECT_TEXT_LENGTH,
+        description="待检测文本",
+    )
+
+
+@lru_cache(maxsize=1)
+def _global_detect_engine() -> WatermarkEngine:
+    """
+    全局检测引擎单例。
+
+    检测引擎的绿名单掩码缓存 (_mask_cache) 为实例级: 每次请求新建引擎会让
+    缓存全部作废, 对 65536 词表反复洗牌。跨请求复用同一实例可命中缓存,
+    大幅降低重复 bigram 前缀的检测开销。
+    """
+    return WatermarkEngine()
+
+
+@lru_cache(maxsize=16)
+def _doc_detect_engine_cached(
+    doc_id: str, gamma: float, delta: float, key_hex: str
+) -> WatermarkEngine:
+    """按 (文档 ID, γ, δ, 密钥) 签名缓存的文档检测引擎。
+
+    签名包含全部水印参数: 参数变更自然产生新签名, 无需手动失效;
+    签名不变时复用实例, 使绿名单掩码缓存跨请求生效
+    (文档重复检测/证据包导出不再反复洗牌词表)。
+    """
+    return WatermarkEngine(
+        gamma=gamma,
+        delta=delta,
+        secret_key=bytes.fromhex(key_hex),
+    )
+
+
+def _document_detect_engine(doc: "Document") -> WatermarkEngine:
+    """取文档的检测引擎 (带缓存); 未设置独立密钥时回退全局密钥。"""
+    from config import settings
+
+    key = doc.watermark_key or settings.WATERMARK_SECRET_KEY
+    return _doc_detect_engine_cached(
+        str(doc.id), doc.watermark_gamma, doc.watermark_delta, key.hex()
+    )
 
 
 class DetectResponse(BaseModel):
@@ -72,10 +122,11 @@ class OpLogOut(BaseModel):
 async def detect_watermark(payload: DetectRequest) -> DetectResponse:
     """
     检测文本中是否包含 Kirchenbauer 水印。
-    骨架实现: 调用 WatermarkEngine.detect_watermark()。
+    检测为 CPU 密集计算, 放入线程池执行以避免阻塞事件循环;
+    引擎为全局单例, 跨请求复用绿名单掩码缓存。
     """
-    engine = WatermarkEngine()
-    result = engine.detect_watermark(payload.text)
+    engine = _global_detect_engine()
+    result = await asyncio.to_thread(engine.detect_watermark, payload.text)
     return DetectResponse(
         is_ai_generated=result["is_ai_generated"],
         confidence=result["confidence"],
@@ -139,7 +190,7 @@ async def generate_llm_watermarked(payload: LLMGenerateRequest) -> dict:
             status_code=503,
             detail="LLM logprobs 生成失败 (网络/鉴权/空结果), 未产出含水印文本",
         )
-    detect = engine.detect_watermark(text)
+    detect = await asyncio.to_thread(engine.detect_watermark, text)
     return {
         "text": text,
         "chars": len(text),
@@ -224,16 +275,15 @@ class WatermarkParamsUpdate(BaseModel):
 
 
 def _params_out(doc: Document) -> WatermarkParamsOut:
-    import hashlib
-
     from config import settings
+    from services.watermark_engine import key_fingerprint
 
     key = doc.watermark_key or settings.WATERMARK_SECRET_KEY
     return WatermarkParamsOut(
         gamma=doc.watermark_gamma,
         delta=doc.watermark_delta,
         secret_key_hex=key.hex(),
-        key_fingerprint=hashlib.sha256(key).hexdigest()[:16],
+        key_fingerprint=key_fingerprint(key),
         updated_at=doc.updated_at,
     )
 
@@ -263,7 +313,7 @@ async def update_document_watermark_params(
     但旧密钥注入的历史内容将无法再检出 (面板需提示用户)。
     """
     from config import settings
-    from services.watermark_engine import generate_secret_key
+    from services.watermark_engine import generate_secret_key, key_fingerprint
 
     async with oplog_append_lock(doc_id):
         doc = await db.get(Document, doc_id)
@@ -293,7 +343,7 @@ async def update_document_watermark_params(
             "gamma": doc.watermark_gamma,
             "delta": doc.watermark_delta,
             "key_regenerated": payload.regenerate_key,
-            "key_fingerprint": hashlib.sha256(bytes.fromhex(new_key)).hexdigest()[:16],
+            "key_fingerprint": key_fingerprint(bytes.fromhex(new_key)),
         }
         log = OpLog(
             doc_id=doc.id,
@@ -325,7 +375,9 @@ async def detect_document_watermark(
       2. 追加一条溯源链操作日志 (op_type='watermark_checked'),
          使"水印检测"动作本身也可追溯, 增强版权证据链。
     """
+    from config import settings  # 本地导入: 密钥回退全局配置
     from services.oplog_chain import OpLogHashChain  # noqa: F401 (重导入避免歧义)
+    from services.watermark_engine import key_fingerprint
 
     # 串行化本文档的溯源链追加 (缺陷 D1): 并发检测/编辑读到相同链尾会算出
     # 相同 current_hash, 违反 op_logs.current_hash UNIQUE 约束 -> 500 + 断链。
@@ -335,15 +387,13 @@ async def detect_document_watermark(
         if doc is None:
             raise HTTPException(status_code=404, detail="Document not found")
 
-        # 步骤 12: 用文档独立密钥/参数构建检测引擎 (与注入端一致)
-        from config import settings
-
-        engine = WatermarkEngine(
-            gamma=doc.watermark_gamma,
-            delta=doc.watermark_delta,
-            secret_key=doc.watermark_key or settings.WATERMARK_SECRET_KEY,
-        )
-        result = engine.detect_watermark(doc.content or "")
+        # 步骤 12: 用文档独立密钥/参数构建检测引擎 (与注入端一致);
+        # 引擎按参数签名缓存, 掩码缓存跨请求复用
+        effective_key = doc.watermark_key or settings.WATERMARK_SECRET_KEY
+        engine = _document_detect_engine(doc)
+        # CPU 密集检测放线程池, 避免长文档阻塞事件循环 (锁内等待无害:
+        # 该锁本就用于串行化本文档的日志追加)
+        result = await asyncio.to_thread(engine.detect_watermark, doc.content or "")
         model_name = result.get("model_name") or "kirchenbauer-greenlist"
 
         # 1. 写入水印记录 (落库实际使用的文档密钥/参数, 供证据链还原)
@@ -352,7 +402,7 @@ async def detect_document_watermark(
             model_name=model_name,
             gamma=engine.gamma,
             delta=engine.delta,
-            secret_key=doc.watermark_key or settings.WATERMARK_SECRET_KEY,
+            secret_key=effective_key,
             token_seq={"watermark_chars": result["watermark_chars"], "detected": result["is_ai_generated"]},
         )
         db.add(record)
@@ -375,9 +425,7 @@ async def detect_document_watermark(
             "content_len": len(doc.content or ""),
             "gamma": engine.gamma,
             "delta": engine.delta,
-            "key_fingerprint": hashlib.sha256(
-                doc.watermark_key or settings.WATERMARK_SECRET_KEY
-            ).hexdigest()[:16],
+            "key_fingerprint": key_fingerprint(effective_key),
         }
         log = OpLog(
             doc_id=doc.id,
@@ -468,23 +516,33 @@ async def verify_provenance(
     return await _verify_chain(db, doc_id)
 
 
-async def _verify_chain(db: AsyncSession, doc_id: uuid.UUID) -> dict:
-    """溯源哈希链校验公共实现 (被 verify 端点与证据包导出复用)"""
+async def _verify_chain(
+    db: AsyncSession,
+    doc_id: uuid.UUID,
+    logs: Optional[List[OpLog]] = None,
+) -> dict:
+    """
+    溯源哈希链校验公共实现 (被 verify 端点与证据包导出复用)。
+
+    logs: 可选。调用方已查询过的日志列表 (时间正序), 传入时不再重复查询
+    (证据包导出需要日志内容与校验结果, 复用同一份查询结果)。
+    """
     # 避免循环导入
     from services.oplog_chain import OpLogHashChain
 
-    stmt = (
-        select(OpLog)
-        .where(OpLog.doc_id == doc_id)
-        .order_by(OpLog.created_at.asc())
-    )
-    try:
-        result = await db.execute(stmt)
-        logs = list(result.scalars().all())
-    except Exception:
-        # 日志的 operation 被外部破坏为非法 JSON 时, 查询反序列化即失败,
-        # 无法校验 -> 判定该链无效 (返回 200, 避免 500 崩溃)
-        return {"doc_id": str(doc_id), "valid": False, "checked": 0}
+    if logs is None:
+        stmt = (
+            select(OpLog)
+            .where(OpLog.doc_id == doc_id)
+            .order_by(OpLog.created_at.asc())
+        )
+        try:
+            result = await db.execute(stmt)
+            logs = list(result.scalars().all())
+        except Exception:
+            # 日志的 operation 被外部破坏为非法 JSON 时, 查询反序列化即失败,
+            # 无法校验 -> 判定该链无效 (返回 200, 避免 500 崩溃)
+            return {"doc_id": str(doc_id), "valid": False, "checked": 0}
 
     if not logs:
         return {"doc_id": str(doc_id), "valid": True, "checked": 0}
@@ -544,7 +602,6 @@ async def export_evidence_package(
         render_markdown,
         render_pdf,
     )
-    from config import settings
 
     doc = await db.get(Document, doc_id)
     if doc is None:
@@ -567,22 +624,19 @@ async def export_evidence_package(
     )
     records = list((await db.execute(rec_stmt)).scalars().all())
 
-    # 溯源链 (时间正序) + 哈希链校验
+    # 溯源链 (时间正序) + 哈希链校验: 复用同一份查询结果, 校验不再重复查询
     log_stmt = (
         select(OpLog)
         .where(OpLog.doc_id == doc_id)
         .order_by(OpLog.created_at.asc())
     )
     logs = list((await db.execute(log_stmt)).scalars().all())
-    chain_verify = await _verify_chain(db, doc_id)
+    chain_verify = await _verify_chain(db, doc_id, logs=logs)
 
     # 导出时刻实时检测 (仅作为观察记录, 不落库)
-    engine = WatermarkEngine(
-        gamma=doc.watermark_gamma,
-        delta=doc.watermark_delta,
-        secret_key=doc.watermark_key or settings.WATERMARK_SECRET_KEY,
-    )
-    live = engine.detect_watermark(doc.content or "")
+    # 引擎按 (文档, 参数签名) 缓存复用: 绿名单掩码缓存跨请求生效
+    engine = _document_detect_engine(doc)
+    live = await asyncio.to_thread(engine.detect_watermark, doc.content or "")
     live_detect = {
         "is_ai_generated": live["is_ai_generated"],
         "confidence": live["confidence"],

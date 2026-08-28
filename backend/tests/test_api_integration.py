@@ -235,6 +235,23 @@ async def test_concurrent_writes_no_500_and_chain_valid(client):
 # ---------------------------------------------------------------------------
 # Agent 编排
 # ---------------------------------------------------------------------------
+async def _wait_for_messages(
+    client: AsyncClient, session_id: str, expected_total: int, timeout: float = 60.0
+) -> dict:
+    """轮询会话消息直至达到期望条数 (invoke 返回 202, 编排在后台任务中执行)"""
+    deadline = asyncio.get_running_loop().time() + timeout
+    body: dict = {"total": -1}
+    while asyncio.get_running_loop().time() < deadline:
+        body = (await client.get(f"/api/agents/sessions/{session_id}/messages")).json()
+        if body["total"] >= expected_total:
+            return body
+        await asyncio.sleep(0.05)
+    raise AssertionError(
+        f"会话 {session_id} 消息在 {timeout}s 内未达到 {expected_total} 条 "
+        f"(当前 {body.get('total')})"
+    )
+
+
 @pytest.mark.asyncio
 async def test_agent_research_retrieves_real_literature(client, demo_doc_id):
     resp = await client.post(
@@ -248,7 +265,7 @@ async def test_agent_research_retrieves_real_literature(client, demo_doc_id):
     assert resp.status_code == 202
     session_id = resp.json()["session_id"]
 
-    messages = (await client.get(f"/api/agents/sessions/{session_id}/messages")).json()
+    messages = await _wait_for_messages(client, session_id, 1)
     research_msgs = [m for m in messages["messages"] if m["agentType"] == "research"]
     assert len(research_msgs) == 1
     content = research_msgs[0]["content"]
@@ -271,7 +288,7 @@ async def test_agent_supervisor_review(client, demo_doc_id):
     assert resp.status_code == 202
     session_id = resp.json()["session_id"]
 
-    messages = (await client.get(f"/api/agents/sessions/{session_id}/messages")).json()
+    messages = await _wait_for_messages(client, session_id, 1)
     sup_msgs = [m for m in messages["messages"] if m["agentType"] == "supervisor"]
     assert len(sup_msgs) == 1
     assert "导师审稿意见" in sup_msgs[0]["content"]

@@ -52,6 +52,9 @@ class ArxivClient:
 
         Raises:
             httpx.HTTPError / ValueError: 网络或解析失败 (供上层降级)
+
+        Note:
+            网络抖动/超时自动重试一次 (间隔 1s), 两次均失败才抛出。
         """
         params = {
             "search_query": query,
@@ -60,13 +63,25 @@ class ArxivClient:
             "sortBy": "relevance",
             "sortOrder": "descending",
         }
-        async with httpx.AsyncClient(
-            timeout=self.timeout,
-            headers={"User-Agent": ARXIV_USER_AGENT},
-        ) as client:
-            resp = await client.get(ARXIV_API, params=params)
-            resp.raise_for_status()
-            xml = resp.text
+        xml: str | None = None
+        last_exc: Exception | None = None
+        for attempt in range(2):
+            try:
+                async with httpx.AsyncClient(
+                    timeout=self.timeout,
+                    headers={"User-Agent": ARXIV_USER_AGENT},
+                ) as client:
+                    resp = await client.get(ARXIV_API, params=params)
+                    resp.raise_for_status()
+                    xml = resp.text
+                break
+            except httpx.HTTPError as exc:
+                last_exc = exc
+                if attempt == 0:
+                    await asyncio.sleep(1.0)
+        if xml is None:
+            assert last_exc is not None
+            raise last_exc
 
         if "<entry>" not in xml:
             # arXiv 返回空 feed (无结果)

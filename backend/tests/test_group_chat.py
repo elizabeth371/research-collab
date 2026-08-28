@@ -5,6 +5,7 @@ Agent 群聊会话测试
 (多轮追问 -> 每轮 research/writer/supervisor 各追加一条, 历史不丢失)。
 """
 
+import asyncio
 import uuid
 
 import pytest
@@ -38,6 +39,23 @@ async def _invoke(client: AsyncClient, doc_id: str, session_id: str | None, inst
     return resp.json()["session_id"]
 
 
+async def _wait_for_messages(
+    client: AsyncClient, session_id: str, expected_total: int, timeout: float = 60.0
+) -> dict:
+    """轮询会话消息直至达到期望条数 (invoke 返回 202, 编排在后台任务中执行)"""
+    deadline = asyncio.get_running_loop().time() + timeout
+    body: dict = {"total": -1}
+    while asyncio.get_running_loop().time() < deadline:
+        body = (await client.get(f"/api/agents/sessions/{session_id}/messages")).json()
+        if body["total"] >= expected_total:
+            return body
+        await asyncio.sleep(0.05)
+    raise AssertionError(
+        f"会话 {session_id} 消息在 {timeout}s 内未达到 {expected_total} 条 "
+        f"(当前 {body.get('total')})"
+    )
+
+
 @pytest.mark.asyncio
 async def test_invoke_without_session_creates_new(client, demo_doc_id, monkeypatch):
     # 清空 API Key: 保证 Writer 走确定性规则模板 (真实 LLM 链路
@@ -56,14 +74,14 @@ async def test_session_reuse_accumulates_history(client, demo_doc_id, monkeypatc
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     # 第一轮: 新建会话
     sid = await _invoke(client, demo_doc_id, None, "检索 AI 水印文献")
-    msgs1 = (await client.get(f"/api/agents/sessions/{sid}/messages")).json()
+    msgs1 = await _wait_for_messages(client, sid, 3)
     assert msgs1["total"] == 3  # research + writer + supervisor
 
     # 第二轮: 复用同一 session_id -> 消息历史在同一线程内追加
     sid2 = await _invoke(client, demo_doc_id, sid, "再检索 CRDT 协同文献")
     assert sid2 == sid  # 复用同一会话
 
-    msgs2 = (await client.get(f"/api/agents/sessions/{sid}/messages")).json()
+    msgs2 = await _wait_for_messages(client, sid, 6)
     assert msgs2["total"] == 6  # 3 + 3, 历史不丢失
     agents2 = [m["agentType"] for m in msgs2["messages"]]
     assert agents2 == ["research", "writer", "supervisor"] * 2
@@ -73,5 +91,5 @@ async def test_session_reuse_accumulates_history(client, demo_doc_id, monkeypatc
     # 第三轮: 会话在服务器重启前持续有效
     sid3 = await _invoke(client, demo_doc_id, sid, "总结以上两轮结果")
     assert sid3 == sid
-    msgs3 = (await client.get(f"/api/agents/sessions/{sid}/messages")).json()
+    msgs3 = await _wait_for_messages(client, sid, 9)
     assert msgs3["total"] == 9

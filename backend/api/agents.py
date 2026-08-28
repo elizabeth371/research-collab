@@ -156,12 +156,10 @@ async def invoke_agent(
     """
     触发 ResearchAgent / WriterAgent / SupervisorAgent。
 
-    返回 202 Accepted:
-    任务在后台异步运行 (FastAPI BackgroundTasks),
-    结果通过 WebSocket `/ws/{doc_id}` 实时推送至前端。
+    返回 202 Accepted: 编排图在后台任务中异步运行,
+    前端通过轮询 /sessions/{id}/state 与 /sessions/{id}/messages
+    获取进度与结果。
     """
-    # TODO: 接入 FastAPI BackgroundTasks 或 Celery 任务队列
-    # 骨架实现: 直接调用编排服务 (同步演示, 模拟耗时 <1s)
     session_id: str = await orchestrator.start_session(
         doc_id=str(payload.doc_id),
         agent_type=payload.agent_type,
@@ -213,9 +211,12 @@ async def get_session_messages(
     session = orchestrator.get_session(str(session_id))
     raw = (session or {}).get("state", {}).get("messages", [])
 
+    # 先切片再映射: 避免对全部历史做无效映射 (长会话 O(n) -> O(limit));
+    # id 仍按全量索引生成, 保证跨轮次轮询时前端去重用的 id 稳定
+    start_index = max(0, len(raw) - limit)
     messages = [
         {
-            "id": f"{session_id}-{i}",
+            "id": f"{session_id}-{start_index + i}",
             "sessionId": str(session_id),
             "agentType": m.get("agent", "supervisor"),
             "role": m.get("role", "agent"),
@@ -225,8 +226,8 @@ async def get_session_messages(
             # 步骤 10: Writer 消息是否含水印 (前端渲染徽章)
             "watermarked": bool(m.get("watermarked", False)),
         }
-        for i, m in enumerate(raw)
-    ][:limit]
+        for i, m in enumerate(raw[start_index:])
+    ]
 
     return {
         "session_id": str(session_id),
