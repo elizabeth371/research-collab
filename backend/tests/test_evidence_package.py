@@ -7,7 +7,7 @@
 - Markdown 证据包: 包含全部关键章节与哈希
 - PDF 证据包: 合法 PDF 二进制 (%PDF 头), 中文渲染不报错
 - 边界: 未知文档 404 / 非法格式 422
-- 实时检测: 测试样例(含水印)判 AI, 演示文档(纯文本)判人类
+- 实时检测: 测试样例(含水印)判 AI, 自建纯人工文本文档判人类
 - 哈希链校验结果: 正式文档溯源链 valid=True 且逐条校验
 """
 
@@ -22,11 +22,34 @@ from services.evidence_package import compute_package_hash, verify_package_hash
 DEMO_DOC_ID = "00000000-0000-4000-8000-0000000000a1"
 TEST_SAMPLE_ID = "ddaf2f58-a9a2-45ca-83ce-3d7718d4a0c7"
 
+# 已知纯人工创作样例: 不再以演示文档为"人类文本"锚点 (其内容会随实际
+# 使用被编辑, 扩充后可能被检测器判为 AI, 导致测试随数据状态随机失败)
+_HUMAN_SAMPLE = (
+    "欢迎来到智溯协同编辑器。左侧可触发 Agent, 右侧可直接编辑。"
+    "今天下午的组会上, 大家一起讨论了开题报告的修改意见, 我负责整理会议记录。"
+    "会后去图书馆借了几本关于数据安全的书, 晚上把参考文献的格式统一了一遍,"
+    "顺便把下周的实验计划列成了清单。"
+)
+
 
 @pytest.fixture
 def client():
     transport = ASGITransport(app=app)
     return AsyncClient(transport=transport, base_url="http://test")
+
+
+async def _create_human_doc(client: AsyncClient) -> str:
+    """创建已知纯人工文本的测试文档 (conftest 自动清理 测试文档- 前缀)"""
+    resp = await client.post(
+        "/api/documents",
+        json={
+            "title": f"测试文档-纯人工文本-{uuid.uuid4().hex[:8]}",
+            "owner_id": "00000000-0000-4000-8000-000000000001",
+            "content": _HUMAN_SAMPLE,
+        },
+    )
+    assert resp.status_code == 201, resp.text
+    return resp.json()["id"]
 
 
 async def _evidence(client: AsyncClient, doc_id: str, fmt: str = "json"):
@@ -126,8 +149,9 @@ async def test_evidence_live_detect_on_watermarked_doc(client):
 
 @pytest.mark.asyncio
 async def test_evidence_live_detect_on_human_doc(client):
-    # 演示文档为纯人类创作文本 -> 不误判
-    resp = await _evidence(client, DEMO_DOC_ID, "json")
+    # 已知纯人工创作文本 -> 导出时刻实时检测不误判 (自建文档, 不依赖演示内容)
+    doc_id = await _create_human_doc(client)
+    resp = await _evidence(client, doc_id, "json")
     assert resp.status_code == 200
     live = resp.json()["live_detect"]
     assert live["is_ai_generated"] is False

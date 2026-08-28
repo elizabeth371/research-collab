@@ -6,7 +6,7 @@
 - 参数端点: GET 默认值 / PATCH 更新 / 重新生成密钥 / 422 校验 / 404
 - 溯源: 参数变更写入 op_logs (watermark_params) 且哈希链保持完整
 - 检测一致性: 文档检测使用文档密钥 (旧全局密钥水印内容仍可检出;
-  演示文档纯文本不被误判)
+  自建纯人工文本文档不被误判)
 - 引擎: load_document_engine 按文档参数构建; 显式 delta 覆盖 LLM 校准值
 - 鲁棒性端点: 传 doc_id 时用文档密钥检测
 """
@@ -23,6 +23,16 @@ from services.watermark_engine import WatermarkEngine, load_document_engine
 
 DEMO_DOC_ID = "00000000-0000-4000-8000-0000000000a1"
 TEST_SAMPLE_ID = "ddaf2f58-a9a2-45ca-83ce-3d7718d4a0c7"
+
+# 已知纯人工创作样例 (日常记事文本, 检测 z 实测 < 0)。
+# 不再以演示文档为"人类文本"锚点: 其内容会随实际使用被编辑,
+# 扩充后可能被检测器判为 AI (数据依赖导致测试随机失败)。
+_HUMAN_SAMPLE = (
+    "欢迎来到智溯协同编辑器。左侧可触发 Agent, 右侧可直接编辑。"
+    "今天下午的组会上, 大家一起讨论了开题报告的修改意见, 我负责整理会议记录。"
+    "会后去图书馆借了几本关于数据安全的书, 晚上把参考文献的格式统一了一遍,"
+    "顺便把下周的实验计划列成了清单。"
+)
 
 VOCAB = list(
     "人工智能水印版权溯源科研协同编辑技术安全检测论文写作质量评估方法"
@@ -49,13 +59,13 @@ def client():
     return AsyncClient(transport=transport, base_url="http://test")
 
 
-async def _create_doc(client: AsyncClient) -> str:
+async def _create_doc(client: AsyncClient, content: str = "") -> str:
     resp = await client.post(
         "/api/documents",
         json={
             "title": f"测试文档-{uuid.uuid4().hex[:8]}",
             "owner_id": "00000000-0000-4000-8000-000000000001",
-            "content": "",
+            "content": content,
         },
     )
     assert resp.status_code == 201, resp.text
@@ -197,8 +207,9 @@ async def test_detect_document_uses_doc_key(client):
     assert resp.status_code == 200, resp.text
     assert resp.json()["is_ai_generated"] is True
 
-    # 演示文档: 纯文本 -> 不误判
-    resp2 = await client.post(f"/api/watermark/documents/{DEMO_DOC_ID}/detect")
+    # 纯人工文本的测试文档 -> 不误判 (自建文档, 不依赖演示文档内容)
+    human_doc_id = await _create_doc(client, content=_HUMAN_SAMPLE)
+    resp2 = await client.post(f"/api/watermark/documents/{human_doc_id}/detect")
     assert resp2.status_code == 200
     assert resp2.json()["is_ai_generated"] is False
 
