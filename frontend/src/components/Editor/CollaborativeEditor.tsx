@@ -8,10 +8,10 @@ import { MathInline, MathBlock } from '../../extensions/math';
 import Collaboration from '@tiptap/extension-collaboration';
 import CollaborationCursor from '@tiptap/extension-collaboration-cursor';
 import { Extension, Mark, mergeAttributes } from '@tiptap/core';
-import { Plugin, PluginKey } from '@tiptap/pm/state';
+import { Plugin, PluginKey, type Transaction } from '@tiptap/pm/state';
 import { Decoration, DecorationSet } from '@tiptap/pm/view';
 import { getCollabSession } from '../../lib/collab';
-import { collectAuthors, AUTHOR_AI } from '../../lib/yjs';
+import { collectAuthors, getAuthorFromDelta, AUTHOR_AI } from '../../lib/yjs';
 import { markdownToHtml, docToMarkdown } from '../../lib/markdown';
 import { updateDocument, getComments, addComment, deleteComment, polishText } from '../../lib/api';
 import type { CommentItem } from '../../lib/api';
@@ -594,33 +594,63 @@ export function CollaborativeEditor({
     };
   }, [editor, docId, operatorId, ydoc]);
 
-  // ---- 监听远程更新 -> 刷新作者着色与统计 ----
+  // ---- 监听文档更新 -> 补作者标记 + 刷新作者统计 ----
   useEffect(() => {
     if (!editor) return;
 
-    // 本地输入: 标记为人类作者 (默认)
-    const handleDocUpdate = () => {
+    /**
+     * 本地输入: 将未标注文本标记为默认作者 (人类); AI 内容由
+     * appendAiText 携带 author mark 写入, 无需此处处理。
+     *
+     * 性能约束 (本地每次按键与远程每次同步都会进入):
+     *  - 只处理真正改变文档的事务, 光标移动等元数据事务直接跳过;
+     *  - 补标多个 setAttribute 合并进单个 Yjs 事务, 只产生一次
+     *    update 广播 (逐个 setAttribute 会逐条广播);
+     *  - 作者统计与未标注收集合并为一次全文档遍历; 统计不变时
+     *    不 setState, 避免每次按键触发整棵组件树重渲染。
+     */
+    const handleDocUpdate = ({ transaction }: { transaction: Transaction }) => {
+      if (!transaction.docChanged) return;
       const fragment = ydoc.getXmlFragment('default');
-      // 将用户本地插入的文本标记为 human
-      // NOTE: 真实场景在 beforeinput/transaction 时给文本加 author=human 属性
-      // 此处用 Y.XmlText.format 模拟: 对最新段落文本打标
-      const texts: Y.XmlText[] = [];
+      const unmarked: Y.XmlText[] = [];
+      const authorSet = new Set<string>();
       const walk = (node: Y.XmlElement | Y.XmlText | Y.XmlFragment): void => {
-        if (node instanceof Y.XmlText) texts.push(node);
-        else node.forEach(walk);
+        if (node instanceof Y.XmlText) {
+          if (node.length > 0 && !node.getAttribute('author')) {
+            unmarked.push(node);
+          }
+          const delta = node.toDelta() as Array<{
+            attributes?: { author?: unknown };
+          }>;
+          for (const item of delta) {
+            const author = getAuthorFromDelta(item);
+            if (author) authorSet.add(author);
+          }
+        } else {
+          node.forEach(walk);
+        }
       };
       walk(fragment);
-      for (const t of texts) {
-        if (t.length > 0 && !t.getAttribute('author')) {
-          // 默认全部标记为人类 (AI 内容由 appendAiText 携带 author mark 写入)
-          // 属性值用 mark attrs 对象格式, 与 y-prosemirror 的 mark 映射一致
-          t.setAttribute('author', { author: defaultAuthor });
-        }
+
+      if (unmarked.length > 0) {
+        // 属性值用 mark attrs 对象格式, 与 y-prosemirror 的 mark 映射一致
+        ydoc.transact(() => {
+          for (const t of unmarked) {
+            t.setAttribute('author', { author: defaultAuthor });
+          }
+        });
+        authorSet.add(defaultAuthor);
       }
-      // 刷新统计
-      const a = collectAuthors(ydoc);
-      authorsRef.current = a;
-      setAuthors(new Set(a));
+
+      // 仅在作者集合真正变化时更新状态 (Set 按内容比较)
+      const prev = authorsRef.current;
+      const changed =
+        prev.size !== authorSet.size ||
+        [...authorSet].some((a) => !prev.has(a));
+      if (changed) {
+        authorsRef.current = authorSet;
+        setAuthors(authorSet);
+      }
     };
 
     // Tiptap transaction 触发 (含本地输入与远程 CRDT 同步)
@@ -639,6 +669,13 @@ export function CollaborativeEditor({
     setPolishNotice(msg);
     window.clearTimeout(polishTimer.current);
     polishTimer.current = window.setTimeout(() => setPolishNotice(null), 4500);
+  }, []);
+
+  // 组件卸载时清理提示自动消失的定时器, 防止卸载后 setState
+  useEffect(() => {
+    return () => {
+      window.clearTimeout(polishTimer.current);
+    };
   }, []);
 
   const handlePolish = useCallback(async () => {

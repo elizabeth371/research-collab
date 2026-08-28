@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { memo, useEffect, useRef, useState } from 'react';
 import type { ChatMessageItem } from '@shared/types';
 import { getChatMessages } from '../../lib/api';
 
@@ -17,7 +17,8 @@ interface ChatPanelProps {
   username: string;
 }
 
-export function ChatPanel({ docId, userId, username }: ChatPanelProps) {
+// memo: props (docId/userId/username) 在无关 App 状态变化时不变
+export const ChatPanel = memo(function ChatPanel({ docId, userId, username }: ChatPanelProps) {
   const [messages, setMessages] = useState<ChatMessageItem[]>([]);
   const [input, setInput] = useState('');
   const [connected, setConnected] = useState(false);
@@ -27,11 +28,75 @@ export function ChatPanel({ docId, userId, username }: ChatPanelProps) {
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   // 连接 WebSocket + 加载历史 (按文档切换)
+  // 断线自动重连: 指数退避 (1s/2s/4s... 上限 15s), 连接成功后重置;
+  // 切换文档时 disposed 置真, 取消未触发的重连并断开旧房间。
   useEffect(() => {
     if (!docId) return;
     let disposed = false;
+    let ws: WebSocket | null = null;
+    let retryCount = 0;
+    let reconnectTimer: number | undefined;
 
-    // 1. 加载历史消息
+    // 切换文档时清空上一房间的消息与加载标志, 避免陈旧内容串扰
+    setMessages([]);
+    setHistoryLoaded(false);
+
+    const scheduleReconnect = () => {
+      const delay = Math.min(15000, 1000 * 2 ** retryCount);
+      retryCount += 1;
+      reconnectTimer = window.setTimeout(() => {
+        if (!disposed) connect();
+      }, delay);
+    };
+
+    const connect = () => {
+      // 1. 建立实时房间连接
+      const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
+      ws = new WebSocket(`${proto}://${window.location.host}/ws/chat/${docId}`);
+      wsRef.current = ws;
+      ws.onopen = () => {
+        if (disposed) return;
+        retryCount = 0;
+        setConnected(true);
+      };
+      // 浏览器规范: onerror 之后必然触发 onclose, 重连统一收口在 onclose
+      ws.onclose = () => {
+        if (disposed) return;
+        setConnected(false);
+        scheduleReconnect();
+      };
+      ws.onmessage = (ev) => {
+        try {
+          const data = JSON.parse(String(ev.data));
+          if (data?.type === 'chat' && typeof data.content === 'string') {
+            // 服务端广播含消息 ID (含发送者回显): 按 ID 去重,
+            // 防止重连/重放导致同一条消息重复渲染; 无 ID 时退回本地生成
+            const id =
+              typeof data.id === 'string' && data.id
+                ? `ws-${data.id}`
+                : `ws-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+            setMessages((prev) => {
+              if (prev.some((m) => m.id === id)) return prev;
+              return [
+                ...prev,
+                {
+                  id,
+                  doc_id: docId,
+                  user_id: data.user_id || null,
+                  username: data.username || '匿名',
+                  content: data.content,
+                  created_at: new Date().toISOString(),
+                },
+              ];
+            });
+          }
+        } catch {
+          /* 非 JSON 帧忽略 */
+        }
+      };
+    };
+
+    // 2. 加载历史消息
     getChatMessages(docId)
       .then((msgs) => {
         if (!disposed) {
@@ -45,37 +110,12 @@ export function ChatPanel({ docId, userId, username }: ChatPanelProps) {
         }
       });
 
-    // 2. 建立实时房间连接
-    const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
-    const ws = new WebSocket(`${proto}://${window.location.host}/ws/chat/${docId}`);
-    wsRef.current = ws;
-    ws.onopen = () => !disposed && setConnected(true);
-    ws.onclose = () => !disposed && setConnected(false);
-    ws.onerror = () => !disposed && setConnected(false);
-    ws.onmessage = (ev) => {
-      try {
-        const data = JSON.parse(String(ev.data));
-        if (data?.type === 'chat' && typeof data.content === 'string') {
-          setMessages((prev) => [
-            ...prev,
-            {
-              id: `ws-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-              doc_id: docId,
-              user_id: data.user_id || null,
-              username: data.username || '匿名',
-              content: data.content,
-              created_at: new Date().toISOString(),
-            },
-          ]);
-        }
-      } catch {
-        /* 非 JSON 帧忽略 */
-      }
-    };
+    connect();
 
     return () => {
       disposed = true;
-      ws.close();
+      window.clearTimeout(reconnectTimer);
+      ws?.close();
       wsRef.current = null;
     };
   }, [docId]);
@@ -177,4 +217,4 @@ export function ChatPanel({ docId, userId, username }: ChatPanelProps) {
       </div>
     </div>
   );
-}
+});

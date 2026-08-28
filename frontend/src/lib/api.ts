@@ -32,18 +32,37 @@ import type {
 /** 后端 API 基础路径 */
 const BASE_URL = '/api';
 
-async function request<T>(path: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE_URL}${path}`, {
-    headers: { 'Content-Type': 'application/json' },
-    ...options,
-  });
-  if (!res.ok) {
-    throw new Error(`API ${path} 请求失败: ${res.status} ${res.statusText}`);
+/** request 可选项: 在 RequestInit 上扩展超时毫秒数 (默认 120s, 覆盖 LLM 慢调用) */
+interface RequestOptions extends RequestInit {
+  timeoutMs?: number;
+}
+
+async function request<T>(path: string, options?: RequestOptions): Promise<T> {
+  const { timeoutMs = 120000, ...init } = options ?? {};
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(`${BASE_URL}${path}`, {
+      headers: { 'Content-Type': 'application/json' },
+      ...init,
+      signal: init.signal ?? controller.signal,
+    });
+    if (!res.ok) {
+      throw new Error(`API ${path} 请求失败: ${res.status} ${res.statusText}`);
+    }
+    if (res.status === 204) {
+      return undefined as T;
+    }
+    return (await res.json()) as T;
+  } catch (e) {
+    // 超时中止的 AbortError 转译为可读提示 (其余错误原样上抛)
+    if (e instanceof DOMException && e.name === 'AbortError') {
+      throw new Error(`API ${path} 请求超时 (${Math.round(timeoutMs / 1000)}s)`);
+    }
+    throw e;
+  } finally {
+    clearTimeout(timer);
   }
-  if (res.status === 204) {
-    return undefined as T;
-  }
-  return (await res.json()) as T;
 }
 
 // ---------------------------------------------------------------------------
@@ -166,6 +185,17 @@ export const getAgentMessages = (sessionId: string) =>
   request<AgentMessagesResponse>(
     `/agents/sessions/${sessionId}/messages`
   );
+
+/** Agent 会话运行状态 (invoke 为 202 异步执行, 前端轮询此接口直至 completed/failed) */
+export interface AgentStateResponse {
+  type: string;
+  status: 'idle' | 'running' | 'completed' | 'failed';
+  docId?: string | null;
+}
+
+/** 查询 Agent 会话当前运行状态 */
+export const getAgentState = (sessionId: string) =>
+  request<AgentStateResponse>(`/agents/sessions/${sessionId}/state`);
 
 // ---------------------------------------------------------------------------
 // 写稿人润色 / 审稿人红牌
@@ -340,6 +370,21 @@ interface BackendDetectResponse {
   num_tokens_scored?: number;
 }
 
+/** snake_case 检测响应 -> 共享类型 (detect / detectDocument / generate-llm 三处共用) */
+const mapDetectResponse = (
+  raw: BackendDetectResponse,
+  docId = ''
+): WatermarkDetectionResult => ({
+  docId,
+  watermarkChars: raw.watermark_chars,
+  confidence: raw.confidence,
+  isAiGenerated: raw.is_ai_generated,
+  latencyMs: 0,
+  zScore: raw.z_score ?? 0,
+  greenFraction: raw.green_fraction ?? 0,
+  numTokensScored: raw.num_tokens_scored ?? 0,
+});
+
 /**
  * 水印检测 (Kirchenbauer 解码)
  * 将后端 snake_case 响应映射为共享类型 WatermarkDetectionResult。
@@ -349,18 +394,7 @@ export const detectWatermark = async (text: string): Promise<WatermarkDetectionR
     method: 'POST',
     body: JSON.stringify({ text }),
   });
-
-  // 与 shared/types.ts 的 WatermarkDetectionResult 对齐
-  return {
-    docId: '',
-    watermarkChars: raw.watermark_chars,
-    confidence: raw.confidence,
-    isAiGenerated: raw.is_ai_generated,
-    latencyMs: 0,
-    zScore: raw.z_score ?? 0,
-    greenFraction: raw.green_fraction ?? 0,
-    numTokensScored: raw.num_tokens_scored ?? 0,
-  };
+  return mapDetectResponse(raw);
 };
 
 // ---------------------------------------------------------------------------
@@ -491,17 +525,7 @@ export const detectDocumentWatermark = async (
     `/watermark/documents/${docId}/detect`,
     { method: 'POST' }
   );
-  // 与 detectWatermark 相同: 后端 DetectResponse 为 snake_case, 需映射
-  return {
-    docId,
-    watermarkChars: raw.watermark_chars,
-    confidence: raw.confidence,
-    isAiGenerated: raw.is_ai_generated,
-    latencyMs: 0,
-    zScore: raw.z_score ?? 0,
-    greenFraction: raw.green_fraction ?? 0,
-    numTokensScored: raw.num_tokens_scored ?? 0,
-  };
+  return mapDetectResponse(raw, docId);
 };
 
 /**
@@ -533,16 +557,7 @@ export const generateWatermarkedText = async (
     chars: raw.chars,
     engine: raw.engine,
     docId: raw.doc_id ?? null,
-    detect: {
-      docId: '',
-      watermarkChars: raw.detect.watermark_chars,
-      confidence: raw.detect.confidence,
-      isAiGenerated: raw.detect.is_ai_generated,
-      latencyMs: 0,
-      zScore: raw.detect.z_score ?? 0,
-      greenFraction: raw.detect.green_fraction ?? 0,
-      numTokensScored: raw.detect.num_tokens_scored ?? 0,
-    },
+    detect: mapDetectResponse(raw.detect),
   };
 };
 

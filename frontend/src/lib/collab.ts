@@ -50,11 +50,17 @@ export function getCollabSession(docId: string): CollabSession {
   return session;
 }
 
-/** 销毁文档会话 (关闭 WebSocket 连接): 切换文档时调用, 防止连接泄漏 */
+/**
+ * 销毁文档会话 (切换文档时调用, 防止连接与 CRDT 状态泄漏):
+ * 先断开 WebSocket (provider.destroy 内部会销毁 awareness 并摘除
+ * Y.Doc 监听), 再销毁 Y.Doc 释放 CRDT 数据结构。
+ * 之后 getCollabSession 会重建全新会话。
+ */
 export function disposeCollabSession(docId: string): void {
   const session = sessions.get(docId);
   if (session) {
     session.provider.destroy();
+    session.ydoc.destroy();
     sessions.delete(docId);
   }
 }
@@ -64,6 +70,7 @@ if (import.meta.hot) {
   import.meta.hot.dispose(() => {
     for (const session of sessions.values()) {
       session.provider.destroy();
+      session.ydoc.destroy();
     }
     sessions.clear();
   });

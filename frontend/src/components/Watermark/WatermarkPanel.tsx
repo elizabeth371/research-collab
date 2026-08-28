@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { memo, useCallback, useEffect, useState } from 'react';
 import type {
   DocumentWatermarkParams,
   LLMGenerateResult,
@@ -42,7 +42,8 @@ interface WatermarkPanelProps {
   exportDenied?: boolean;
 }
 
-export function WatermarkPanel({
+// memo: props (docId/getDocText/exportDenied) 在无关 App 状态变化时不变
+export const WatermarkPanel = memo(function WatermarkPanel({
   docId,
   getDocText,
   exportDenied = false,
@@ -106,29 +107,42 @@ export function WatermarkPanel({
     }
   };
 
-  const refreshParams = useCallback(async () => {
-    if (!docId) return;
-    setParamsLoading(true);
-    try {
-      const p = await getDocWatermarkParams(docId);
-      setWmParams(p);
-      setGammaVal(p.gamma);
-      setDeltaVal(p.delta);
-      setParamsErr(null);
-    } catch {
-      // 参数加载失败不阻断主流程
-    } finally {
-      setParamsLoading(false);
-    }
-  }, [docId]);
+  /**
+   * 刷新文档水印参数。
+   * isCancelled: 文档切换/组件卸载时置真, 丢弃过期响应,
+   * 防止旧文档的异步响应覆盖新文档的指纹/参数 (竞态守卫)。
+   */
+  const refreshParams = useCallback(
+    async (isCancelled: () => boolean = () => false) => {
+      if (!docId) return;
+      setParamsLoading(true);
+      try {
+        const p = await getDocWatermarkParams(docId);
+        if (isCancelled()) return;
+        setWmParams(p);
+        setGammaVal(p.gamma);
+        setDeltaVal(p.delta);
+        setParamsErr(null);
+      } catch {
+        // 参数加载失败不阻断主流程
+      } finally {
+        if (!isCancelled()) setParamsLoading(false);
+      }
+    },
+    [docId]
+  );
 
   useEffect(() => {
     // docId 切换时先清空旧文档参数, 避免异步加载期间显示上一文档的陈旧指纹/密钥
+    let cancelled = false;
     setWmParams(null);
     setParamsMsg(null);
     setParamsErr(null);
     setShowKey(false);
-    refreshParams();
+    refreshParams(() => cancelled);
+    return () => {
+      cancelled = true;
+    };
   }, [refreshParams]);
 
   /** 保存文档水印参数 (γ / δ), 写溯源链日志 */
@@ -172,17 +186,27 @@ export function WatermarkPanel({
     }
   };
 
-  const refreshRecords = useCallback(async () => {
-    try {
-      const data = await getWatermarkRecords(docId);
-      setRecords(data.records);
-    } catch {
-      // 历史记录加载失败不阻断主流程
-    }
-  }, [docId]);
+  /** 刷新检测历史记录 (同样支持取消守卫, 见 refreshParams) */
+  const refreshRecords = useCallback(
+    async (isCancelled: () => boolean = () => false) => {
+      try {
+        const data = await getWatermarkRecords(docId);
+        if (isCancelled()) return;
+        setRecords(data.records);
+      } catch {
+        // 历史记录加载失败不阻断主流程
+      }
+    },
+    [docId]
+  );
 
   useEffect(() => {
-    refreshRecords();
+    let cancelled = false;
+    setRecords([]);
+    refreshRecords(() => cancelled);
+    return () => {
+      cancelled = true;
+    };
   }, [refreshRecords]);
 
   const runDetect = async (text: string, persist: boolean) => {
@@ -763,4 +787,4 @@ export function WatermarkPanel({
       </div>
     </div>
   );
-}
+});

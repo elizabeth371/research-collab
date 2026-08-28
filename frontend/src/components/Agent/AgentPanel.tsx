@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState } from 'react';
+import { memo, useEffect, useRef, useState } from 'react';
 import type * as Y from 'yjs';
 import type { AgentMessage, AgentStatus, ReviewResult, RewriteResult } from '@shared/types';
 import { AgentStatus as AgentStatusEnum, AgentType } from '@shared/types';
-import { triggerAgent, getAgentMessages, reviewDocument, polishText, rewriteDocument } from '../../lib/api';
+import { triggerAgent, getAgentState, getAgentMessages, reviewDocument, polishText, rewriteDocument } from '../../lib/api';
 import { appendAiText, AUTHOR_AI } from '../../lib/yjs';
 import { docToMarkdown } from '../../lib/markdown';
 import { getCollabSession } from '../../lib/collab';
@@ -32,6 +32,19 @@ interface ChatItem {
 /** 会话/线程缓存: 按文档保存, 切换文档或组件重挂载后群聊不丢失 (服务端会话存内存) */
 const sessionCache = new Map<string, string>();
 const threadCache = new Map<string, ChatItem[]>();
+
+/** 缓存上限: 只保留最近使用的 N 个文档线程, 防止长会话内存无界增长 */
+const MAX_CACHED_DOCS = 20;
+
+/** LRU 写入 (Map 按插入序淘汰最旧): 重写已有键时先删再插, 保证其"新鲜" */
+function cacheSet<V>(map: Map<string, V>, key: string, value: V): void {
+  map.delete(key);
+  map.set(key, value);
+  if (map.size > MAX_CACHED_DOCS) {
+    const oldest = map.keys().next().value;
+    if (oldest !== undefined) map.delete(oldest);
+  }
+}
 
 interface AgentPanelProps {
   docId: string;
@@ -85,7 +98,8 @@ const ALL_COMPLETED: Record<AgentType, AgentStatus> = {
   supervisor: AgentStatusEnum.COMPLETED,
 };
 
-export function AgentPanel({ docId, username, ydoc }: AgentPanelProps) {
+// memo: props (docId/username/ydoc) 在无关 App 状态变化时不变, 跳过重渲染
+export const AgentPanel = memo(function AgentPanel({ docId, username, ydoc }: AgentPanelProps) {
   const [statuses, setStatuses] = useState<Record<AgentType, AgentStatus>>({
     research: AgentStatusEnum.IDLE,
     writer: AgentStatusEnum.IDLE,
@@ -106,6 +120,8 @@ export function AgentPanel({ docId, username, ydoc }: AgentPanelProps) {
 
   const ydocRef = useRef(ydoc);
   ydocRef.current = ydoc;
+  const docIdRef = useRef(docId);
+  docIdRef.current = docId;
   const sessionIdRef = useRef<string | null>(sessionCache.get(docId) ?? null);
   const threadRef = useRef<HTMLDivElement>(null);
 
@@ -129,7 +145,7 @@ export function AgentPanel({ docId, username, ydoc }: AgentPanelProps) {
           ids.add(it.id);
         }
       }
-      threadCache.set(docId, next);
+      cacheSet(threadCache, docId, next);
       return next;
     });
   };
@@ -159,16 +175,42 @@ export function AgentPanel({ docId, username, ydoc }: AgentPanelProps) {
 
     try {
       // 群聊会话: 首次不传 session_id, 之后复用同一会话实现多轮追问
+      const requestDocId = docId;
       const { session_id: sessionId } = await triggerAgent(
         AgentType.RESEARCH,
-        docId,
+        requestDocId,
         text,
         sessionIdRef.current ?? undefined
       );
       sessionIdRef.current = sessionId;
-      sessionCache.set(docId, sessionId);
+      cacheSet(sessionCache, requestDocId, sessionId);
+
+      // 编排在后端后台任务中运行 (invoke 返回 202): 轮询会话状态直至完成
+      const POLL_INTERVAL_MS = 400;
+      const POLL_TIMEOUT_MS = 120_000;
+      const deadline = Date.now() + POLL_TIMEOUT_MS;
+      let finalStatus = '';
+      while (Date.now() < deadline) {
+        // 请求期间用户切换了文档: 放弃本次结果, 避免把 AI 产物写进别的文档
+        if (docIdRef.current !== requestDocId) {
+          return;
+        }
+        const state = await getAgentState(sessionId);
+        if (state.status === 'completed' || state.status === 'failed') {
+          finalStatus = state.status;
+          break;
+        }
+        await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
+      }
+      if (finalStatus === 'failed') {
+        throw new Error('Agent 编排执行失败, 请查看后端日志');
+      }
 
       const { messages: msgs } = await getAgentMessages(sessionId);
+      // 轮询期间切换了文档: 结果留存在会话中, 不写入当前界面与文档
+      if (docIdRef.current !== requestDocId) {
+        return;
+      }
       appendThread(
         msgs.map((m) => ({
           id: m.id,
@@ -624,4 +666,4 @@ export function AgentPanel({ docId, username, ydoc }: AgentPanelProps) {
       </div>
     </aside>
   );
-}
+});
