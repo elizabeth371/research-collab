@@ -472,6 +472,16 @@ def generate_secret_key() -> bytes:
     return secrets.token_bytes(32)
 
 
+def key_fingerprint(secret_key: bytes) -> str:
+    """
+    密钥指纹: SHA-256 前 32 个十六进制字符 (128 bit)。
+
+    用于展示与对账, 可确认两处使用的是同一密钥而不泄露密钥本身;
+    证据包 / 溯源日志只允许携带指纹, 禁止导出密钥原文。
+    """
+    return hashlib.sha256(secret_key).hexdigest()[:32]
+
+
 async def load_document_engine(doc_id: Optional[str]) -> WatermarkEngine:
     """
     按文档参数构建水印引擎 (步骤 12: 每文档独立密钥 / γ / δ)。

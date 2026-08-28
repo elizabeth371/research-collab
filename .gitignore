@@ -22,6 +22,10 @@ backend/*_posttest*
 # 密钥文件 (禁止提交)
 .env
 *.env
+.secrets/
+
+# 本地工具缓存 (安全扫描等)
+.mimosa/
 
 # 演示脚本输出
 scripts/demo-output/

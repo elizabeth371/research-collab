@@ -11,7 +11,6 @@
 - 哈希链校验结果: 正式文档溯源链 valid=True 且逐条校验
 """
 
-import hashlib
 import uuid
 
 import pytest
@@ -49,14 +48,11 @@ async def test_evidence_json_structure(client):
         assert section in data, f"证据包缺少章节: {section}"
     assert data["document"]["id"] == TEST_SAMPLE_ID
     assert data["document"]["content_length"] > 0
-    # 水印参数与密钥指纹: 密钥 hex 必须与指纹对应 (完整性)
-    assert isinstance(data["watermark_params"]["key_fingerprint"], str)
-    key_hex = data["watermark_params"]["secret_key_hex"]
-    assert len(key_hex) >= 32 and len(key_hex) % 2 == 0
-    assert (
-        hashlib.sha256(bytes.fromhex(key_hex)).hexdigest()[:16]
-        == data["watermark_params"]["key_fingerprint"]
-    )
+    # 密钥安全: 证据包只允许携带指纹 (128 bit), 不得泄露密钥原文
+    assert "secret_key_hex" not in data["watermark_params"]
+    fingerprint = data["watermark_params"]["key_fingerprint"]
+    assert isinstance(fingerprint, str) and len(fingerprint) == 32
+    assert all(c in "0123456789abcdef" for c in fingerprint)
     # 溯源链结构
     assert isinstance(data["provenance"]["logs"], list)
     assert "chain_valid" in data["provenance"]

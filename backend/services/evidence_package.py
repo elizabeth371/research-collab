@@ -4,7 +4,8 @@
 把文档的完整版权证据链打包为可存档 / 可提交评审的审计产物:
 
   1. 文档元信息 + 全文快照
-  2. 每文档水印参数 (γ / δ) 与密钥指纹 (密钥 hex 完整保留, 供离线复现检测)
+  2. 每文档水印参数 (γ / δ) 与密钥指纹 (128 bit; 绝不包含密钥原文,
+     防止证据包在流转中被第三方用于伪造水印)
   3. 全部水印检测历史记录
   4. 完整溯源链操作日志 + 哈希链完整性校验结果
   5. 导出时刻的实时水印检测 (仅作为导出时点的观察, 不落库)
@@ -21,6 +22,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from config import settings
+from services.watermark_engine import key_fingerprint
 
 # ---------------------------------------------------------------------------
 # package_hash: 规范化 JSON -> SHA-256
@@ -102,9 +104,12 @@ def build_evidence_data(
     data: Dict[str, Any] = {
         "package": {
             "name": "research-collab-copyright-evidence",
-            "version": 1,
+            "version": 2,
             "exported_at": exported_at.isoformat(),
-            "note": "package_hash 为去除该字段后规范化 JSON 的 SHA-256, 可离线重算校验完整性",
+            "note": (
+                "package_hash 为去除该字段后规范化 JSON 的 SHA-256, 可离线重算校验完整性; "
+                "水印密钥仅以指纹形式出现, 密钥原文由签发方保管"
+            ),
         },
         "document": {
             "id": str(doc.id),
@@ -117,8 +122,8 @@ def build_evidence_data(
         "watermark_params": {
             "gamma": doc.watermark_gamma,
             "delta": doc.watermark_delta,
-            "key_fingerprint": hashlib.sha256(key).hexdigest()[:16],
-            "secret_key_hex": key.hex(),
+            # 仅指纹 (128 bit), 不导出密钥原文
+            "key_fingerprint": key_fingerprint(key),
         },
         "detect_records": [_record_out(r) for r in records],
         "provenance": {
@@ -187,7 +192,6 @@ def render_markdown(data: dict) -> str:
         f"- **绿名单比例 γ**: {p['gamma']}",
         f"- **注入强度 δ**: {p['delta']}",
         f"- **密钥指纹**: `{p['key_fingerprint']}`",
-        f"- **独立密钥 (hex)**: `{p['secret_key_hex']}`",
         "",
         "## 三、水印检测历史记录",
         "",
@@ -399,7 +403,6 @@ def render_pdf(data: dict) -> bytes:
         ("绿名单比例 γ", p["gamma"]),
         ("注入强度 δ", p["delta"]),
         ("密钥指纹", p["key_fingerprint"]),
-        ("独立密钥 (hex)", p["secret_key_hex"]),
     ]))
 
     # 三、检测历史

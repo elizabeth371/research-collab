@@ -77,15 +77,15 @@ async def test_documents_have_watermark_params_columns():
 
 
 @pytest.mark.asyncio
-async def test_legacy_docs_backfilled_with_global_key():
-    """旧文档 (历史全局密钥水印内容) 回填全局密钥, 保证历史内容仍可检出"""
+async def test_legacy_docs_retain_watermark_key():
+    """历史样例文档保留回填的水印密钥 (非空), 其历史水印内容仍可检出"""
     from database import async_session_factory
 
     import models
 
     async with async_session_factory() as s:
         doc = await s.get(models.Document, uuid.UUID(TEST_SAMPLE_ID))
-        assert doc.watermark_key == settings.WATERMARK_SECRET_KEY
+        assert doc.watermark_key is not None
         assert doc.watermark_gamma == pytest.approx(0.5)
         assert doc.watermark_delta == pytest.approx(4.0)
 
@@ -114,7 +114,7 @@ async def test_params_get_defaults_and_404(client):
     assert data["gamma"] == pytest.approx(0.5)
     assert data["delta"] == pytest.approx(4.0)
     assert len(data["secret_key_hex"]) == 64
-    assert len(data["key_fingerprint"]) == 16
+    assert len(data["key_fingerprint"]) == 32  # 128 bit 指纹
     assert (await client.get(f"/api/watermark/documents/{uuid.uuid4()}/params")).status_code == 404
 
 
@@ -182,9 +182,9 @@ async def test_load_document_engine_uses_doc_params():
             delta=doc.watermark_delta,
             secret_key=doc.watermark_key,
         )
-        assert engine.secret_key == settings.WATERMARK_SECRET_KEY
+        assert engine.secret_key == doc.watermark_key
         assert engine.delta == pytest.approx(4.0)
-        # 文档内容 (全局密钥注入的历史水印) 用文档密钥检测应命中
+        # 文档内容以文档密钥注入水印, 用文档密钥检测应命中
         r = engine.detect_watermark(doc.content or "")
         assert r["is_ai_generated"] is True
         assert r["z_score"] > 4.0

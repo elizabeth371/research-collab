@@ -26,7 +26,7 @@ from sqlalchemy.ext.asyncio import (
 from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy import event
 
-from config import settings
+from config import LEGACY_HASHCHAIN_SALT, settings
 
 logger = logging.getLogger("uvicorn.error")
 
@@ -197,6 +197,13 @@ async def init_db() -> None:
         else:
             raise
 
+    # 哈希链盐值升级兼容: 早期版本把盐硬编码在源码中, 内置演示数据库的
+    # 既有链条均以旧盐计算; 直接换新盐会导致全部历史链校验失败
+    try:
+        await _ensure_chain_salt_continuity()
+    except Exception as exc:  # 探测失败不阻断启动 (仅记录)
+        logger.warning("⚠️ 溯源链盐值兼容探测失败 (不影响启动): %s", exc)
+
     # 步骤 12 轻量迁移: 已有库补充每文档水印参数列 + 兼容旧约束
     # (create_all 不会给已存在的表增量加列, 需手动 ALTER)
     try:
@@ -208,6 +215,57 @@ async def init_db() -> None:
 # ---------------------------------------------------------------------------
 # 步骤 12: 每文档独立水印密钥/参数的轻量迁移
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# 哈希链盐值升级兼容 (探针式)
+# ---------------------------------------------------------------------------
+async def _ensure_chain_salt_continuity() -> None:
+    """
+    检测既有溯源链是否以历史硬编码盐计算, 命中则沿用旧盐。
+
+    背景: 2026-08 之前 HASHCHAIN_SALT 直接写在 config.py 中, 仓库内置演示
+    数据库的日志链全部以该盐生成。config 改造后若无条件改用新生成的随机盐,
+    所有历史链的 current_hash 重算结果都会变化 -> 校验全部失败。
+
+    策略: 取链首日志, 用旧盐重算其哈希并比对:
+      - 匹配且当前盐 != 旧盐   -> 显式沿用旧盐 (origin='legacy-compat',
+                                  同时回写本地盐文件, 重启后行为一致)
+      - 不匹配 / 空库          -> 保持 config 解析结果 (新库用新随机盐)
+      - 用户显式配置了环境变量 -> 同样参与比对但通常不匹配旧数据,
+                                  以显式配置为准
+    """
+    from sqlalchemy import select
+
+    import models
+    from services.oplog_chain import OpLogHashChain
+
+    async with async_session_factory() as session:
+        first = (
+            await session.execute(
+                select(models.OpLog).order_by(models.OpLog.created_at.asc()).limit(1)
+            )
+        ).scalar_one_or_none()
+
+    if first is None:
+        return  # 空库无历史链, 无需兼容
+
+    legacy_head = OpLogHashChain.compute_hash(
+        prev_hash="",
+        operation=first.operation,
+        timestamp=first.created_at,
+        salt=LEGACY_HASHCHAIN_SALT,
+    )
+    if (
+        first.current_hash == legacy_head
+        and settings.hashchain_salt_origin != "legacy-compat"
+        and settings.HASHCHAIN_SALT != LEGACY_HASHCHAIN_SALT
+    ):
+        settings.adopt_hashchain_salt(LEGACY_HASHCHAIN_SALT, "legacy-compat")
+        logger.warning(
+            "🔗 检测到以历史硬编码盐写入的溯源链, 已沿用旧盐保证既有数据可校验 "
+            "(后续可通过迁移脚本重算链条后再切换新盐)"
+        )
+
+
 async def _migrate_watermark_params() -> None:
     """
     为已有数据库补齐 documents.watermark_key / watermark_gamma /
