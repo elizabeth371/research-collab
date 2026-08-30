@@ -236,6 +236,20 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+# ---------------------------------------------------------------------------
+# 安全响应头: 基础加固 (防 MIME 嗅探 / 防被 iframe 嵌套 / 限制 referrer 泄露)
+# ---------------------------------------------------------------------------
+@app.middleware("http")
+async def _security_headers(request, call_next):
+    response = await call_next(request)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault(
+        "Referrer-Policy", "strict-origin-when-cross-origin"
+    )
+    return response
+
 # ---------------------------------------------------------------------------
 # 注册 REST API 路由
 # ---------------------------------------------------------------------------

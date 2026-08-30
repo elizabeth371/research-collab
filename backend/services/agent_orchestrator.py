@@ -37,6 +37,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Callable, Dict, List, Literal, Optional, Set, TypedDict
 
+from config import settings
+
 logger = logging.getLogger("uvicorn.error")
 
 # 检索关键词过滤: 指令中的常见功能性/停用词, 不参与文献匹配
@@ -615,7 +617,7 @@ class OrchestratorService:
                 "writing_task": instruction,
                 "messages": prev_messages,
                 "status": AgentStatus.RUNNING.value,
-                "metadata": {"model": "deepseek-v3"},  # TODO: 可配置
+                "metadata": {"model": settings.LLM_MODEL},
                 "review_rounds": 0,
                 "rewrite_log": [],
             }
