@@ -1,0 +1,4 @@
+﻿mode,n,z_mean,z_std,z_min,z_max,fp_rate@4
+char_bigram,6,-0.083,0.864,-1.193,1.078,0.0
+dual_anchor,6,0.136,0.654,-0.808,1.078,0.0
+unigram_anchor,6,-0.889,0.638,-2.183,-0.114,0.0

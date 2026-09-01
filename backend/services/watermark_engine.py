@@ -39,6 +39,16 @@ import numpy as np
 
 from config import settings
 
+# ---------------------------------------------------------------------------
+# 中文词级支持 (jieba): 惰性加载, 未安装时词级模式自动降级为字符级
+# ---------------------------------------------------------------------------
+try:
+    import jieba as _jieba
+    _JIEBA_AVAILABLE = True
+except ImportError:  # pragma: no cover
+    _jieba = None
+    _JIEBA_AVAILABLE = False
+
 
 class WatermarkEngine:
     """
@@ -49,6 +59,14 @@ class WatermarkEngine:
       delta:      logits 偏移量 (默认 2.0)
       secret_key: 哈希密钥 (参与 RNG 种子混合, 保证绿名单不可被他人预测)
       hash_key:   论文式 RNG 种子素数 (官方默认 15485863)
+      hash_mode:  绿名单哈希粒度 (默认 char_bigram, 保持历史行为):
+        - char_bigram    按前一个字符码点哈希 (Kirchenbauer 原文, 默认)
+        - word_bigram    按前一个「词」的密钥绑定 ID 哈希 (jieba 分词;
+                          对词内字符扰动/词边界噪声更鲁棒, 词级模式)
+        - unigram_anchor 全文共享一张与位置无关的锚点绿名单 (对任意
+                          字符置换免疫: 乱序/同义替换后 z 严格不变)
+        - dual_anchor    注入同时含字符 bigram + 锚点信号, 检测取两通道
+                          z 的最大值融合 (基线检测与抗乱序兼得)
     """
 
     def __init__(
@@ -57,6 +75,7 @@ class WatermarkEngine:
         delta: float | None = None,
         secret_key: bytes | None = None,
         hash_key: int | None = None,
+        hash_mode: str = "char_bigram",
     ) -> None:
         self.gamma: float = gamma if gamma is not None else settings.WATERMARK_GAMMA
         self.delta: float = delta if delta is not None else settings.WATERMARK_DELTA
@@ -68,11 +87,28 @@ class WatermarkEngine:
         )
         # 论文式种子素数 (与官方实现一致)
         self.hash_key: int = hash_key if hash_key is not None else 15485863
+        # 绿名单哈希粒度 (见类 docstring; 默认 char_bigram 完全兼容历史行为)
+        self.hash_mode: str = (hash_mode or "char_bigram").lower()
+        _VALID_MODES = {
+            "char_bigram",
+            "word_bigram",
+            "unigram_anchor",
+            "dual_anchor",
+        }
+        if self.hash_mode not in _VALID_MODES:
+            raise ValueError(
+                f"未知 hash_mode: {hash_mode!r} (可选: {sorted(_VALID_MODES)})"
+            )
         # 检测阈值: z-score > 4.0 判定为含水印 (论文建议的 5-sigma 近似)
         self.detection_threshold: float = 4.0
         # 绿名单掩码缓存: 同一实例下 (prev_token, gamma, secret_key) 恒定,
         # 避免对 65536 元素重复洗牌 —— 重采样每步要算多个候选, 缓存省 90%+ 时间
         self._mask_cache: Dict[int, np.ndarray] = {}
+        # 锚点模式共享掩码 (位置无关, 全文一张)
+        self._anchor_mask_cache: Optional[np.ndarray] = None
+        # 词 ID 缓存: 键为整段文本 (分段结果与密钥绑定, 按引擎实例隔离)
+        self._word_ids_cache: Dict[str, Tuple[int, ...]] = {}
+        self._WORD_IDS_CACHE_MAX = 4096
 
     # ------------------------------------------------------------------
     # 核心: 论文式绿名单生成 (seeding = hash_key * prev_token)
@@ -123,6 +159,67 @@ class WatermarkEngine:
             self._mask_cache.clear()
         self._mask_cache[prev_token] = mask
         return mask
+
+    # ------------------------------------------------------------------
+    # 词级 / 锚点级种子 (word_bigram / unigram_anchor / dual_anchor)
+    # ------------------------------------------------------------------
+    def _word_id(self, word: str) -> int:
+        """
+        词 -> 稳定整数 ID (密钥绑定, 与字符码点空间解耦)。
+
+        同一词在所有位置、所有文档中共享同一绿名单; 词 ID 仅由密钥决定,
+        攻击者无法在不持有密钥的情况下预测。
+        """
+        digest = hashlib.sha256(
+            self.secret_key + b"|w|" + word.encode("utf-8")
+        ).digest()[:8]
+        return int.from_bytes(digest, "big")
+
+    def _word_ids_for(self, text: str) -> Tuple[int, ...]:
+        """
+        文本 -> 逐字符所属词单元 ID (长度 == len(text))。
+
+        与检测端评分逐位置对齐: 位置 i 的种子 = 字符 i-1 所属词的 ID。
+        jieba 未安装时退化为逐字符自成一词 (等价字符级, 保持可用)。
+        分段结果与密钥绑定, 缓存按引擎实例隔离 (不同密钥不得复用)。
+        """
+        cached = self._word_ids_cache.get(text)
+        if cached is not None:
+            return cached
+        if not _JIEBA_AVAILABLE:
+            result = tuple(ord(ch) for ch in text)
+        else:
+            ids: List[int] = []
+            for word in _jieba.cut(text):
+                wid = self._word_id(word)
+                ids.extend([wid] * len(word))
+            result = tuple(ids)
+        if len(self._word_ids_cache) >= self._WORD_IDS_CACHE_MAX:
+            self._word_ids_cache.clear()
+        self._word_ids_cache[text] = result
+        return result
+
+    def _anchor_seed(self) -> int:
+        """文档锚点种子: 仅由密钥决定, 与位置/前文无关 (unigram_anchor 用)。"""
+        digest = hashlib.sha256(self.secret_key + b"|anchor|").digest()[:8]
+        return int.from_bytes(digest, "big")
+
+    def _anchor_mask(self, vocab_size: int) -> np.ndarray:
+        """锚点模式绿名单掩码: 全文共享一张位置无关掩码 (按实例缓存)。"""
+        if (
+            self._anchor_mask_cache is None
+            or len(self._anchor_mask_cache) != vocab_size
+        ):
+            self._anchor_mask_cache = self._green_list_mask(
+                self._anchor_seed(), vocab_size
+            )
+        return self._anchor_mask_cache
+
+    def _model_name(self) -> str:
+        """引擎标识: 默认模式保持历史值 kirchenbauer-v1, 新模式带粒度后缀。"""
+        if self.hash_mode == "char_bigram":
+            return "kirchenbauer-v1"
+        return f"kirchenbauer-{self.hash_mode}"
 
     # ------------------------------------------------------------------
     # 嵌入水印
@@ -197,33 +294,102 @@ class WatermarkEngine:
         self,
         tokens: List[int],
         ignore_repeated_bigrams: bool = True,
+        *,
+        text: Optional[str] = None,
+        mode: Optional[str] = None,
     ) -> Dict[str, float]:
         """
-        对 token 序列评分 (检测核心)。
+        对 token 序列评分 (检测核心, 按 hash_mode 选择绿名单种子)。
 
-        两种模式:
+        两种计分方式 (仅影响去重口径, 与生成端逐位置绿名单判定一致):
         - 标准模式: 以第 1 个 token 为种子, 逐对检查 (prev, cur) 命中绿名单;
         - ignore_repeated_bigrams: 对唯一 bigram 去重计数, 每个 bigram
           只计一次 (论文可靠性修正), 防止重复文本虚高统计量。
+
+        种子口径:
+        - char_bigram:    种子 = 前一个字符码点 (Kirchenbauer 原文);
+        - word_bigram:    种子 = 前一个字符所属「词」的密钥 ID (需 text);
+        - unigram_anchor: 种子 = 与位置无关的锚点常量 (全文一张掩码);
+        - dual_anchor:    字符 bigram 与锚点两通道各算 z, 取最大值融合
+                          (返回 z_char / z_anchor 供分析)。
         """
+        mode = mode or self.hash_mode
         vocab_size = 65536  # 字符级 tokenizer 的词表 (Unicode BMP 范围)
+
+        # ---- 双通道融合: 字符 bigram z 与锚点 z 取最大 ----
+        if mode == "dual_anchor":
+            char_stats = self._score_sequence(
+                tokens, ignore_repeated_bigrams, text=text, mode="char_bigram"
+            )
+            anchor_stats = self._score_sequence(
+                tokens, ignore_repeated_bigrams, text=text, mode="unigram_anchor"
+            )
+            z = max(char_stats["z_score"], anchor_stats["z_score"])
+            base = char_stats if z == char_stats["z_score"] else anchor_stats
+            return {
+                **base,
+                "z_score": round(z, 4),
+                "z_char": char_stats["z_score"],
+                "z_anchor": anchor_stats["z_score"],
+            }
+
+        # ---- 锚点模式: 与位置无关, 纯字符多重集判定 ----
+        if mode == "unigram_anchor":
+            anchor_mask = self._anchor_mask(vocab_size)
+            if ignore_repeated_bigrams:
+                char_table: Dict[int, bool] = {}
+                for cur in tokens:
+                    if cur in char_table:
+                        continue
+                    char_table[cur] = bool(anchor_mask[cur % vocab_size])
+                green_count = sum(char_table.values())
+                total = len(char_table)
+            else:
+                green_count = int(
+                    np.count_nonzero(
+                        anchor_mask[np.asarray(tokens, dtype=np.int64) % vocab_size]
+                    )
+                )
+                total = len(tokens)
+            z_score = self._compute_z_score(green_count, total, self.gamma)
+            return {
+                "num_tokens_scored": total,
+                "num_green_tokens": green_count,
+                "green_fraction": green_count / total if total > 0 else 0.0,
+                "z_score": round(z_score, 4),
+                "p_value": round(self._compute_p_value(z_score), 10),
+            }
+
+        # ---- bigram 系 (char_bigram / word_bigram) ----
+        word_ids = (
+            self._word_ids_for(text)
+            if text is not None and mode == "word_bigram"
+            else None
+        )
 
         if ignore_repeated_bigrams:
             bigram_table: Dict[Tuple[int, int], bool] = {}
             for i in range(1, len(tokens)):
-                bigram = (tokens[i - 1], tokens[i])
-                if bigram in bigram_table:
+                if word_ids is not None:
+                    seed = word_ids[i - 1]
+                else:
+                    seed = tokens[i - 1]
+                key: Tuple[int, int] = (seed, tokens[i])
+                if key in bigram_table:
                     continue
-                mask = self._green_list_mask(bigram[0], vocab_size)
-                bigram_table[bigram] = bool(mask[bigram[1] % vocab_size])
+                mask = self._green_list_mask(seed, vocab_size)
+                bigram_table[key] = bool(mask[tokens[i] % vocab_size])
             green_count = sum(bigram_table.values())
             total = len(bigram_table)
         else:
             green_count = 0
             for i in range(1, len(tokens)):
-                prev_token, cur_token = tokens[i - 1], tokens[i]
-                mask = self._green_list_mask(prev_token, vocab_size)
-                if mask[cur_token % vocab_size]:
+                if word_ids is not None:
+                    seed = word_ids[i - 1]
+                else:
+                    seed = tokens[i - 1]
+                mask = self._green_list_mask(seed, vocab_size)
+                if mask[tokens[i] % vocab_size]:
                     green_count += 1
             total = len(tokens) - 1
 
@@ -269,16 +435,16 @@ class WatermarkEngine:
                 "p_value": 1.0,
                 "green_fraction": 0.0,
                 "num_tokens_scored": 0,
-                "model_name": "kirchenbauer-v1",
+                "model_name": self._model_name(),
             }
 
-        stats = self._score_sequence(tokens)
+        stats = self._score_sequence(tokens, text=text, mode=self.hash_mode)
 
         is_ai = stats["z_score"] > self.detection_threshold
         # 置信度: 论文官方定义为 1 - p_value (正判定时才有意义)
         confidence = round(1.0 - stats["p_value"], 6) if is_ai else 0.0
 
-        return {
+        result: Dict[str, object] = {
             "is_ai_generated": is_ai,
             "confidence": confidence,
             "watermark_chars": stats["num_green_tokens"],
@@ -286,8 +452,13 @@ class WatermarkEngine:
             "p_value": stats["p_value"],
             "green_fraction": stats["green_fraction"],
             "num_tokens_scored": stats["num_tokens_scored"],
-            "model_name": "kirchenbauer-v1",
+            "model_name": self._model_name(),
         }
+        # 双通道模式: 暴露分通道 z 供分析 (论文实验需要)
+        if self.hash_mode == "dual_anchor":
+            result["z_char"] = stats["z_char"]
+            result["z_anchor"] = stats["z_anchor"]
+        return result
 
     # ------------------------------------------------------------------
     # 便捷示例: 生成一段带水印文本 (内部测试用)
@@ -329,7 +500,7 @@ class WatermarkEngine:
     # ------------------------------------------------------------------
     def _token_green_fraction(self, token: str, prev: int) -> float:
         """
-        候选 token 的绿名单命中比例。
+        候选 token 的绿名单命中比例 (char_bigram 口径, 历史默认)。
 
         与 detect_watermark 的字符级 bigram 检查完全对齐:
         将 token 展开为字符序列, 第 1 个字符以 running prev 为种子,
@@ -347,6 +518,53 @@ class WatermarkEngine:
             p = ord(ch)
         return green / len(chars)
 
+    def _token_green_fraction_mode(
+        self,
+        token: str,
+        prev_char: int,
+        *,
+        mode: str,
+        so_far: str = "",
+    ) -> float:
+        """
+        候选 token 的绿名单命中比例 (按 hash_mode 口径, 与检测端逐位对齐)。
+
+        - char_bigram:    委托 _token_green_fraction (历史行为);
+        - unigram_anchor: 全部字符查锚点掩码 (位置无关);
+        - word_bigram:    对 so_far + token 全量分词, 第 k 个字符的种子
+                          = 该字符前一个字符所属词的 ID —— 与检测端
+                          _score_sequence 的 word_ids 口径完全一致
+                          (代价: 每候选一次 jieba 分段, 实验模式可接受);
+        - dual_anchor:    字符 bigram 与锚点两通道比例各取 0.5 加权。
+        """
+        chars = list(token)
+        if not chars:
+            return 0.0
+        if mode == "unigram_anchor":
+            mask = self._anchor_mask(65536)
+            green = sum(1 for ch in chars if mask[ord(ch) % 65536])
+            return green / len(chars)
+        if mode == "word_bigram":
+            seg_ids = self._word_ids_for(so_far + token)
+            green = 0
+            for k, ch in enumerate(chars):
+                g = len(so_far) + k
+                seed = seg_ids[g - 1] if g > 0 else prev_char
+                mask = self._green_list_mask(seed, 65536)
+                if mask[ord(ch) % 65536]:
+                    green += 1
+            return green / len(chars)
+        if mode == "dual_anchor":
+            # 两通道偏置「加法叠加」: 双绿字符获得 2*delta, 各通道独立
+            # 拿到满额 delta 信号 —— 若 0.5/0.5 均分, 锚点通道偏置减半,
+            # 乱序后 z_anchor 不足以越过阈值 (实测 z_anchor 仅 2.5)
+            char_ratio = self._token_green_fraction(token, prev_char)
+            anchor_ratio = self._token_green_fraction_mode(
+                token, prev_char, mode="unigram_anchor"
+            )
+            return char_ratio + anchor_ratio
+        return self._token_green_fraction(token, prev_char)
+
     def resample_with_watermark(
         self,
         candidates: List[List[Tuple[str, float]]],
@@ -355,6 +573,7 @@ class WatermarkEngine:
         delta: Optional[float] = None,
         prev: int = 0,
         rng: Optional[np.random.Generator] = None,
+        mode: Optional[str] = None,
     ) -> str:
         """
         对 LLM 每位置 top-N 候选重新采样, 注入字符级 Kirchenbauer 水印。
@@ -374,6 +593,7 @@ class WatermarkEngine:
                         需 ~4.0 才能在数百字文本上稳定 z>4)
             prev:       running prev 字符码点 (文本首字符以 0 为种子)
             rng:        随机源 (默认随机; 测试可注入固定种子复现)
+            mode:       绿名单哈希粒度 (默认 self.hash_mode; 见类 docstring)
 
         Returns:
             注入水印后的文本 (空 token / 代理区码点候选已被过滤)
@@ -381,6 +601,7 @@ class WatermarkEngine:
         if rng is None:
             rng = np.random.default_rng()
         wm_delta = delta if delta is not None else self.delta
+        mode = mode or self.hash_mode
         out: List[str] = []
         last = prev
         for step_cands in candidates:
@@ -396,9 +617,15 @@ class WatermarkEngine:
             if not filtered:
                 continue
             # 水印注入核心: 按绿名单命中比例加分后温度 softmax 采样
+            # (词级模式需整段文本分段, 逐候选重算; 实验模式成本可接受)
+            so_far = "".join(out) if mode == "word_bigram" else ""
             weighted = np.array(
                 [
-                    lp + wm_delta * self._token_green_fraction(token, last)
+                    lp
+                    + wm_delta
+                    * self._token_green_fraction_mode(
+                        token, last, mode=mode, so_far=so_far
+                    )
                     for token, lp in filtered
                 ],
                 dtype=np.float64,

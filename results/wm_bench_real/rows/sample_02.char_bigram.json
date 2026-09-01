@@ -1,0 +1,105 @@
+{
+ "sample": "sample_02",
+ "mode": "char_bigram",
+ "rows": [
+  {
+   "attack": "no_attack",
+   "label": "无攻击（基线）",
+   "z_score": 18.9541,
+   "is_ai_generated": true,
+   "num_tokens_scored": 776,
+   "green_fraction": 0.8402061855670103,
+   "model": "kirchenbauer-v1"
+  },
+  {
+   "attack": "delete_10",
+   "label": "随机删除 10% 字符",
+   "z_score": 15.2531,
+   "is_ai_generated": true,
+   "num_tokens_scored": 719,
+   "green_fraction": 0.7844228094575799,
+   "model": "kirchenbauer-v1"
+  },
+  {
+   "attack": "delete_20",
+   "label": "随机删除 20% 字符",
+   "z_score": 14.2519,
+   "is_ai_generated": true,
+   "num_tokens_scored": 674,
+   "green_fraction": 0.7744807121661721,
+   "model": "kirchenbauer-v1"
+  },
+  {
+   "attack": "delete_30",
+   "label": "随机删除 30% 字符",
+   "z_score": 12.0003,
+   "is_ai_generated": true,
+   "num_tokens_scored": 584,
+   "green_fraction": 0.7482876712328768,
+   "model": "kirchenbauer-v1"
+  },
+  {
+   "attack": "delete_40",
+   "label": "随机删除 40% 字符",
+   "z_score": 8.8205,
+   "is_ai_generated": true,
+   "num_tokens_scored": 509,
+   "green_fraction": 0.6954813359528488,
+   "model": "kirchenbauer-v1"
+  },
+  {
+   "attack": "truncate_20",
+   "label": "截断末尾 20%",
+   "z_score": 15.2548,
+   "is_ai_generated": true,
+   "num_tokens_scored": 614,
+   "green_fraction": 0.8078175895765473,
+   "model": "kirchenbauer-v1"
+  },
+  {
+   "attack": "synonym_replace",
+   "label": "中文同义替换",
+   "z_score": 18.5712,
+   "is_ai_generated": true,
+   "num_tokens_scored": 772,
+   "green_fraction": 0.8341968911917098,
+   "model": "kirchenbauer-v1"
+  },
+  {
+   "attack": "noise_insert",
+   "label": "插入噪声字符",
+   "z_score": 18.4302,
+   "is_ai_generated": true,
+   "num_tokens_scored": 793,
+   "green_fraction": 0.8272383354350568,
+   "model": "kirchenbauer-v1"
+  },
+  {
+   "attack": "reorder_w2",
+   "label": "局部乱序 窗口2",
+   "z_score": 6.2563,
+   "is_ai_generated": true,
+   "num_tokens_scored": 837,
+   "green_fraction": 0.6081242532855436,
+   "model": "kirchenbauer-v1"
+  },
+  {
+   "attack": "reorder_w4",
+   "label": "局部乱序 窗口4",
+   "z_score": 4.459,
+   "is_ai_generated": true,
+   "num_tokens_scored": 850,
+   "green_fraction": 0.5764705882352941,
+   "model": "kirchenbauer-v1"
+  },
+  {
+   "attack": "reorder_w6",
+   "label": "局部乱序 窗口6",
+   "z_score": 2.936,
+   "is_ai_generated": false,
+   "num_tokens_scored": 858,
+   "green_fraction": 0.5501165501165501,
+   "model": "kirchenbauer-v1"
+  }
+ ]
+}
