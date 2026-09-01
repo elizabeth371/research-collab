@@ -270,9 +270,13 @@ def _write_summary(out_dir: Path, summary: dict, modes: list[str]) -> None:
             row.append(f"{r['detect_rate']}" if r["detect_rate"] is not None else "-")
         rows.append(row)
 
-    with open(out_dir / "summary.csv", "w", encoding="utf-8-sig", newline="") as f:
-        import csv
-        csv.writer(f).writerows([header] + rows)
+    # CSV 统一走 write_text (与文件内其他写入风格一致), 避免 open() 写路径
+    import csv
+    import io
+
+    buf = io.StringIO()
+    csv.writer(buf).writerows([header] + rows)
+    (out_dir / "summary.csv").write_text(buf.getvalue(), encoding="utf-8-sig")
 
     lines = ["| 攻击 | " + " | ".join(f"{m} z(均值±σ)" for m in modes) +
              " | " + " | ".join(f"{m} 检出率" for m in modes) + " |",
@@ -294,9 +298,12 @@ def _write_human_baseline(out_dir: Path, engines: dict, human_dir: Path | None) 
         rows.append([mode, len(zs), round(statistics.mean(zs), 3),
                      round(statistics.pstdev(zs), 3), round(min(zs), 3),
                      round(max(zs), 3), round(fp, 3)])
-    with open(out_dir / "human_baseline.csv", "w", encoding="utf-8-sig", newline="") as f:
-        import csv
-        csv.writer(f).writerows([header] + rows)
+    import csv
+    import io
+
+    buf = io.StringIO()
+    csv.writer(buf).writerows([header] + rows)
+    (out_dir / "human_baseline.csv").write_text(buf.getvalue(), encoding="utf-8-sig")
     md = ["| 模式 | 样本数 | z 均值 | z 标准差 | z 最小 | z 最大 | 误报率@z>4 |",
           "| --- | --- | --- | --- | --- | --- | --- |"]
     for r in rows:
