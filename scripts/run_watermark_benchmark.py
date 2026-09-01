@@ -40,7 +40,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "backend"))
 
 from services.llm_client import llm_client
 from services.watermark_attack import WatermarkAttackSuite
-from services.watermark_engine import WatermarkEngine
+from services.watermark_engine import VALID_HASH_MODES, WatermarkEngine
+
+# 项目根 (本脚本位于 scripts/, 输出目录强制限定在项目内, 防路径穿越)
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 # 主题池 (每次运行取前 N 个, seed 固定保证可复现)
 DEFAULT_TOPICS = [
@@ -301,6 +304,27 @@ def _write_human_baseline(out_dir: Path, engines: dict, human_dir: Path | None) 
     (out_dir / "human_baseline.md").write_text("\n".join(md), encoding="utf-8")
 
 
+def _safe_dir(value: str, flag: str) -> Path:
+    """
+    校验目录类参数: 必须位于项目根内 (解析后), 拒绝越界写入/读取。
+
+    本脚本是本地单用户基准工具, 目录参数由使用者显式给出; 仍做边界
+    校验防止误把输出写到项目外 (路径穿越防护)。
+    """
+    p = Path(value)
+    if not p.is_absolute():
+        p = Path.cwd() / p
+    p = p.resolve()
+    try:
+        p.relative_to(_PROJECT_ROOT)
+    except ValueError:
+        raise SystemExit(
+            f"[error] {flag} 必须位于项目目录内: {_PROJECT_ROOT} "
+            f"(收到 {p}); 拒绝越界访问"
+        )
+    return p
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="水印基准测试 (论文实验数据)")
     parser.add_argument("--samples", type=int, default=5, help="样本数 (主题数)")
@@ -313,10 +337,16 @@ def main() -> None:
     parser.add_argument("--human-dir", type=str, default=None, help="额外人类文本目录 (*.txt)")
     args = parser.parse_args()
 
+    # 模式白名单校验: 未知模式直接拒绝 (模式名会进入输出文件名)
     modes = [m.strip() for m in args.modes.split(",") if m.strip()]
-    asyncio.run(run(Path(args.out), modes, args.samples, args.delta,
-                    args.translate, args.synthetic,
-                    Path(args.human_dir) if args.human_dir else None))
+    unknown = [m for m in modes if m not in VALID_HASH_MODES]
+    if unknown:
+        parser.error(f"未知模式 {unknown} (可选: {sorted(VALID_HASH_MODES)})")
+
+    out_dir = _safe_dir(args.out, "--out")
+    human_dir = _safe_dir(args.human_dir, "--human-dir") if args.human_dir else None
+    asyncio.run(run(out_dir, modes, args.samples, args.delta,
+                    args.translate, args.synthetic, human_dir))
 
 
 if __name__ == "__main__":

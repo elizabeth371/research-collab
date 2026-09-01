@@ -49,6 +49,11 @@ except ImportError:  # pragma: no cover
     _jieba = None
     _JIEBA_AVAILABLE = False
 
+# 合法绿名单哈希粒度 (引擎构造与外部工具共用同一白名单)
+VALID_HASH_MODES = frozenset(
+    {"char_bigram", "word_bigram", "unigram_anchor", "dual_anchor"}
+)
+
 
 class WatermarkEngine:
     """
@@ -89,15 +94,9 @@ class WatermarkEngine:
         self.hash_key: int = hash_key if hash_key is not None else 15485863
         # 绿名单哈希粒度 (见类 docstring; 默认 char_bigram 完全兼容历史行为)
         self.hash_mode: str = (hash_mode or "char_bigram").lower()
-        _VALID_MODES = {
-            "char_bigram",
-            "word_bigram",
-            "unigram_anchor",
-            "dual_anchor",
-        }
-        if self.hash_mode not in _VALID_MODES:
+        if self.hash_mode not in VALID_HASH_MODES:
             raise ValueError(
-                f"未知 hash_mode: {hash_mode!r} (可选: {sorted(_VALID_MODES)})"
+                f"未知 hash_mode: {hash_mode!r} (可选: {sorted(VALID_HASH_MODES)})"
             )
         # 检测阈值: z-score > 4.0 判定为含水印 (论文建议的 5-sigma 近似)
         self.detection_threshold: float = 4.0
