@@ -1,0 +1,138 @@
+{
+ "sample": "sample_19",
+ "mode": "dual_anchor",
+ "rows": [
+  {
+   "attack": "no_attack",
+   "label": "无攻击（基线）",
+   "z_score": 11.9312,
+   "is_ai_generated": true,
+   "num_tokens_scored": 539,
+   "green_fraction": 0.7569573283858998,
+   "model": "kirchenbauer-dual_anchor",
+   "z_char": 11.9312,
+   "z_anchor": 6.0777
+  },
+  {
+   "attack": "delete_10",
+   "label": "随机删除 10% 字符",
+   "z_score": 9.9281,
+   "is_ai_generated": true,
+   "num_tokens_scored": 500,
+   "green_fraction": 0.722,
+   "model": "kirchenbauer-dual_anchor",
+   "z_char": 9.9281,
+   "z_anchor": 6.3249
+  },
+  {
+   "attack": "delete_20",
+   "label": "随机删除 20% 字符",
+   "z_score": 10.3989,
+   "is_ai_generated": true,
+   "num_tokens_scored": 464,
+   "green_fraction": 0.7413793103448276,
+   "model": "kirchenbauer-dual_anchor",
+   "z_char": 10.3989,
+   "z_anchor": 5.9874
+  },
+  {
+   "attack": "delete_30",
+   "label": "随机删除 30% 字符",
+   "z_score": 5.8516,
+   "is_ai_generated": true,
+   "num_tokens_scored": 216,
+   "green_fraction": 0.6990740740740741,
+   "model": "kirchenbauer-dual_anchor",
+   "z_char": 5.7716,
+   "z_anchor": 5.8516
+  },
+  {
+   "attack": "delete_40",
+   "label": "随机删除 40% 字符",
+   "z_score": 6.2554,
+   "is_ai_generated": true,
+   "num_tokens_scored": 368,
+   "green_fraction": 0.6630434782608695,
+   "model": "kirchenbauer-dual_anchor",
+   "z_char": 6.2554,
+   "z_anchor": 5.6001
+  },
+  {
+   "attack": "truncate_20",
+   "label": "截断末尾 20%",
+   "z_score": 10.0342,
+   "is_ai_generated": true,
+   "num_tokens_scored": 438,
+   "green_fraction": 0.7397260273972602,
+   "model": "kirchenbauer-dual_anchor",
+   "z_char": 10.0342,
+   "z_anchor": 5.4848
+  },
+  {
+   "attack": "synonym_replace",
+   "label": "中文同义替换",
+   "z_score": 11.4681,
+   "is_ai_generated": true,
+   "num_tokens_scored": 538,
+   "green_fraction": 0.7472118959107806,
+   "model": "kirchenbauer-dual_anchor",
+   "z_char": 11.4681,
+   "z_anchor": 6.0507
+  },
+  {
+   "attack": "noise_insert",
+   "label": "插入噪声字符",
+   "z_score": 11.758,
+   "is_ai_generated": true,
+   "num_tokens_scored": 555,
+   "green_fraction": 0.7495495495495496,
+   "model": "kirchenbauer-dual_anchor",
+   "z_char": 11.758,
+   "z_anchor": 5.9587
+  },
+  {
+   "attack": "reorder_w2",
+   "label": "局部乱序 窗口2",
+   "z_score": 6.0777,
+   "is_ai_generated": true,
+   "num_tokens_scored": 260,
+   "green_fraction": 0.6884615384615385,
+   "model": "kirchenbauer-dual_anchor",
+   "z_char": 3.4788,
+   "z_anchor": 6.0777
+  },
+  {
+   "attack": "reorder_w4",
+   "label": "局部乱序 窗口4",
+   "z_score": 6.0777,
+   "is_ai_generated": true,
+   "num_tokens_scored": 260,
+   "green_fraction": 0.6884615384615385,
+   "model": "kirchenbauer-dual_anchor",
+   "z_char": 2.8595,
+   "z_anchor": 6.0777
+  },
+  {
+   "attack": "reorder_w6",
+   "label": "局部乱序 窗口6",
+   "z_score": 6.0777,
+   "is_ai_generated": true,
+   "num_tokens_scored": 260,
+   "green_fraction": 0.6884615384615385,
+   "model": "kirchenbauer-dual_anchor",
+   "z_char": 0.4804,
+   "z_anchor": 6.0777
+  },
+  {
+   "attack": "translate_roundtrip",
+   "label": "机器翻译回译 zh→en→zh",
+   "z_score": 4.4754,
+   "is_ai_generated": true,
+   "num_tokens_scored": 540,
+   "green_fraction": 0.5962962962962963,
+   "model": "kirchenbauer-dual_anchor",
+   "z_char": 4.4754,
+   "z_anchor": 0.5313
+  }
+ ]
+}

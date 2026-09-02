@@ -1,0 +1,114 @@
+{
+ "sample": "sample_01",
+ "mode": "word_bigram",
+ "rows": [
+  {
+   "attack": "no_attack",
+   "label": "无攻击（基线）",
+   "z_score": 18.2981,
+   "is_ai_generated": true,
+   "num_tokens_scored": 691,
+   "green_fraction": 0.8480463096960926,
+   "model": "kirchenbauer-word_bigram"
+  },
+  {
+   "attack": "delete_10",
+   "label": "随机删除 10% 字符",
+   "z_score": 13.6981,
+   "is_ai_generated": true,
+   "num_tokens_scored": 627,
+   "green_fraction": 0.773524720893142,
+   "model": "kirchenbauer-word_bigram"
+  },
+  {
+   "attack": "delete_20",
+   "label": "随机删除 20% 字符",
+   "z_score": 10.3006,
+   "is_ai_generated": true,
+   "num_tokens_scored": 575,
+   "green_fraction": 0.7147826086956521,
+   "model": "kirchenbauer-word_bigram"
+  },
+  {
+   "attack": "delete_30",
+   "label": "随机删除 30% 字符",
+   "z_score": 7.882,
+   "is_ai_generated": true,
+   "num_tokens_scored": 510,
+   "green_fraction": 0.6745098039215687,
+   "model": "kirchenbauer-word_bigram"
+  },
+  {
+   "attack": "delete_40",
+   "label": "随机删除 40% 字符",
+   "z_score": 5.027,
+   "is_ai_generated": true,
+   "num_tokens_scored": 428,
+   "green_fraction": 0.6214953271028038,
+   "model": "kirchenbauer-word_bigram"
+  },
+  {
+   "attack": "truncate_20",
+   "label": "截断末尾 20%",
+   "z_score": 15.5778,
+   "is_ai_generated": true,
+   "num_tokens_scored": 546,
+   "green_fraction": 0.8333333333333334,
+   "model": "kirchenbauer-word_bigram"
+  },
+  {
+   "attack": "synonym_replace",
+   "label": "中文同义替换",
+   "z_score": 18.0199,
+   "is_ai_generated": true,
+   "num_tokens_scored": 689,
+   "green_fraction": 0.8432510885341074,
+   "model": "kirchenbauer-word_bigram"
+  },
+  {
+   "attack": "noise_insert",
+   "label": "插入噪声字符",
+   "z_score": 17.112,
+   "is_ai_generated": true,
+   "num_tokens_scored": 707,
+   "green_fraction": 0.8217821782178217,
+   "model": "kirchenbauer-word_bigram"
+  },
+  {
+   "attack": "reorder_w2",
+   "label": "局部乱序 窗口2",
+   "z_score": 5.8057,
+   "is_ai_generated": true,
+   "num_tokens_scored": 722,
+   "green_fraction": 0.6080332409972299,
+   "model": "kirchenbauer-word_bigram"
+  },
+  {
+   "attack": "reorder_w4",
+   "label": "局部乱序 窗口4",
+   "z_score": 4.9463,
+   "is_ai_generated": true,
+   "num_tokens_scored": 723,
+   "green_fraction": 0.5919778699861687,
+   "model": "kirchenbauer-word_bigram"
+  },
+  {
+   "attack": "reorder_w6",
+   "label": "局部乱序 窗口6",
+   "z_score": 1.4045,
+   "is_ai_generated": false,
+   "num_tokens_scored": 732,
+   "green_fraction": 0.5259562841530054,
+   "model": "kirchenbauer-word_bigram"
+  },
+  {
+   "attack": "translate_roundtrip",
+   "label": "机器翻译回译 zh→en→zh",
+   "z_score": 0.1636,
+   "is_ai_generated": false,
+   "num_tokens_scored": 598,
+   "green_fraction": 0.5033444816053512,
+   "model": "kirchenbauer-word_bigram"
+  }
+ ]
+}

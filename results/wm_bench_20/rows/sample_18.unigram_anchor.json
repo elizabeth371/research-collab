@@ -1,0 +1,114 @@
+{
+ "sample": "sample_18",
+ "mode": "unigram_anchor",
+ "rows": [
+  {
+   "attack": "no_attack",
+   "label": "无攻击（基线）",
+   "z_score": 5.8255,
+   "is_ai_generated": true,
+   "num_tokens_scored": 203,
+   "green_fraction": 0.7044334975369458,
+   "model": "kirchenbauer-unigram_anchor"
+  },
+  {
+   "attack": "delete_10",
+   "label": "随机删除 10% 字符",
+   "z_score": 5.4259,
+   "is_ai_generated": true,
+   "num_tokens_scored": 186,
+   "green_fraction": 0.6989247311827957,
+   "model": "kirchenbauer-unigram_anchor"
+  },
+  {
+   "attack": "delete_20",
+   "label": "随机删除 20% 字符",
+   "z_score": 5.9233,
+   "is_ai_generated": true,
+   "num_tokens_scored": 187,
+   "green_fraction": 0.7165775401069518,
+   "model": "kirchenbauer-unigram_anchor"
+  },
+  {
+   "attack": "delete_30",
+   "label": "随机删除 30% 字符",
+   "z_score": 4.9651,
+   "is_ai_generated": true,
+   "num_tokens_scored": 161,
+   "green_fraction": 0.6956521739130435,
+   "model": "kirchenbauer-unigram_anchor"
+  },
+  {
+   "attack": "delete_40",
+   "label": "随机删除 40% 字符",
+   "z_score": 6.054,
+   "is_ai_generated": true,
+   "num_tokens_scored": 166,
+   "green_fraction": 0.7349397590361446,
+   "model": "kirchenbauer-unigram_anchor"
+  },
+  {
+   "attack": "truncate_20",
+   "label": "截断末尾 20%",
+   "z_score": 5.5183,
+   "is_ai_generated": true,
+   "num_tokens_scored": 175,
+   "green_fraction": 0.7085714285714285,
+   "model": "kirchenbauer-unigram_anchor"
+  },
+  {
+   "attack": "synonym_replace",
+   "label": "中文同义替换",
+   "z_score": 6.0509,
+   "is_ai_generated": true,
+   "num_tokens_scored": 202,
+   "green_fraction": 0.7128712871287128,
+   "model": "kirchenbauer-unigram_anchor"
+  },
+  {
+   "attack": "noise_insert",
+   "label": "插入噪声字符",
+   "z_score": 5.7132,
+   "is_ai_generated": true,
+   "num_tokens_scored": 206,
+   "green_fraction": 0.6990291262135923,
+   "model": "kirchenbauer-unigram_anchor"
+  },
+  {
+   "attack": "reorder_w2",
+   "label": "局部乱序 窗口2",
+   "z_score": 5.8255,
+   "is_ai_generated": true,
+   "num_tokens_scored": 203,
+   "green_fraction": 0.7044334975369458,
+   "model": "kirchenbauer-unigram_anchor"
+  },
+  {
+   "attack": "reorder_w4",
+   "label": "局部乱序 窗口4",
+   "z_score": 5.8255,
+   "is_ai_generated": true,
+   "num_tokens_scored": 203,
+   "green_fraction": 0.7044334975369458,
+   "model": "kirchenbauer-unigram_anchor"
+  },
+  {
+   "attack": "reorder_w6",
+   "label": "局部乱序 窗口6",
+   "z_score": 5.8255,
+   "is_ai_generated": true,
+   "num_tokens_scored": 203,
+   "green_fraction": 0.7044334975369458,
+   "model": "kirchenbauer-unigram_anchor"
+  },
+  {
+   "attack": "translate_roundtrip",
+   "label": "机器翻译回译 zh→en→zh",
+   "z_score": -0.5121,
+   "is_ai_generated": false,
+   "num_tokens_scored": 244,
+   "green_fraction": 0.48360655737704916,
+   "model": "kirchenbauer-unigram_anchor"
+  }
+ ]
+}
