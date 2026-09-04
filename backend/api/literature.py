@@ -1,12 +1,13 @@
 """
 文献检索 API
 ================
-面向调研 (Research) Agent 的文献资源检索端点。
+面向「文献检索面板」与调研 (Research) Agent 的文献检索端点。
 
-- 数据源: literature 表 (种子语料 + 人工导入)
-- 检索策略: 标题/摘要/关键词的简单包含匹配 (骨架阶段;
-  后续可接入 ArXiv / 知网 / 语义 Scholar 等外部检索源)
-- 能力: 关键词检索 + 文献详情 + 插入引文格式文本
+- /search: **联网检索优先** (arXiv API, 带重试/超时/标准化映射,
+  见 services/arxiv_client.py), 失败或空结果时自动降级本地文献表;
+  响应为标准化信封 JSON: {status, message, data[]}, data 内字段
+  统一映射为 {id, title, authors[], abstract, url, published_date, source}。
+- /{lit_id}, /{lit_id}/citation: 本地文献详情与引文格式文本 (不变)。
 """
 
 import uuid
@@ -19,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_db
 from models import Literature
+from services.arxiv_client import search_arxiv_standard
 
 router = APIRouter(prefix="/api/literature", tags=["literature"])
 
@@ -52,18 +54,37 @@ class CitationOut(BaseModel):
 # ---------------------------------------------------------------------------
 # API 端点
 # ---------------------------------------------------------------------------
-@router.get("/search", response_model=List[LiteratureOut])
-async def search_literature(
-    q: str = Query("", description="检索关键词"),
-    limit: int = Query(10, ge=1, le=50),
-    db: AsyncSession = Depends(get_db),
+# ---------------------------------------------------------------------------
+# 标准化检索信封 (联网搜索修复): 本地 Literature 行 -> 统一文献结构
+# ---------------------------------------------------------------------------
+def _map_local_items(rows: List[Literature]) -> List[dict]:
+    """
+    字段映射 (Mapping): literature 表行 -> 标准化文献结构,
+    与 arXiv 在线结果共用同一份契约 (id/title/authors[]/abstract/url/
+    published_date/source), 严禁把 ORM 原始对象直接抛给前端。
+    """
+    data: List[dict] = []
+    for idx, row in enumerate(rows, start=1):
+        authors_raw = (row.authors or "").strip()
+        data.append(
+            {
+                "id": str(idx),
+                "title": (row.title or "").strip() or "(无标题)",
+                "authors": [a.strip() for a in authors_raw.split(",") if a.strip()],
+                "abstract": (row.abstract or "").strip(),
+                "url": (row.url or "").strip(),
+                "published_date": f"{row.year:04d}-01-01" if row.year else None,
+                "source": (row.source or "").strip() or "本地文献库",
+            }
+        )
+    return data
+
+
+async def _search_local(
+    db: AsyncSession, keyword: str, limit: int
 ) -> List[Literature]:
-    """
-    按关键词检索文献 (标题 / 摘要 / 关键词包含匹配)。
-    空关键词返回最近入库的文献, 便于前端初始化展示。
-    """
+    """本地文献表包含匹配 (标题/摘要/关键词/作者); 空关键词返回最近入库。"""
     stmt = select(Literature).order_by(Literature.year.desc())
-    keyword = q.strip()
     if keyword:
         like = f"%{keyword}%"
         stmt = stmt.where(
@@ -77,6 +98,69 @@ async def search_literature(
     stmt = stmt.limit(limit)
     result = await db.execute(stmt)
     return list(result.scalars().all())
+
+
+@router.get("/search")
+async def search_literature(
+    q: str = Query("", max_length=200, description="检索关键词"),
+    limit: int = Query(10, ge=1, le=50),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """
+    联网文献检索 (标准化信封 JSON)。
+
+    策略:
+      1. 空关键词        -> 本地文献库最近入库 (面板初始化展示);
+      2. 联网检索成功    -> 直接返回 arXiv 标准化结果;
+      3. 联网成功但为空  -> 补充本地文献库匹配项; 仍无则按规范返回
+         {"status":"success","data":[],"message":"未找到相关文献，请更换关键词"};
+      4. 联网失败 (超时/网络/解析) -> 降级本地文献库并在 message 中注明;
+         本地也不可用时透传标准化错误信封 (TIMEOUT/NETWORK_ERROR/PARSE_ERROR)。
+    """
+    keyword = q.strip()
+
+    if not keyword:
+        rows = await _search_local(db, "", limit)
+        return {
+            "status": "success",
+            "message": "本地文献库最近入库文献",
+            "data": _map_local_items(rows),
+        }
+
+    online = await search_arxiv_standard(keyword, max_results=limit)
+
+    # 联网成功且非空 -> 直接返回
+    if online.get("status") == "success" and online.get("data"):
+        return online
+
+    # 联网成功但空结果 -> 本地补充, 仍无则规范空态
+    if online.get("status") == "success":
+        rows = await _search_local(db, keyword, limit)
+        if rows:
+            return {
+                "status": "success",
+                "message": "在线检索未找到结果，以下为本地文献库匹配项",
+                "data": _map_local_items(rows),
+            }
+        return {
+            "status": "success",
+            "data": [],
+            "message": "未找到相关文献，请更换关键词",
+        }
+
+    # 联网失败 -> 本地降级; 本地也不可用时透传错误信封
+    try:
+        rows = await _search_local(db, keyword, limit)
+    except Exception:
+        return online
+    if rows:
+        return {
+            "status": "success",
+            "message": f"在线检索暂不可用（{online.get('message', '')}），"
+                       "已返回本地文献库结果",
+            "data": _map_local_items(rows),
+        }
+    return online
 
 
 @router.get("/{lit_id}", response_model=LiteratureOut)

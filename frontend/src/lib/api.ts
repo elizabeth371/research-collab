@@ -398,31 +398,43 @@ export const detectWatermark = async (text: string): Promise<WatermarkDetectionR
 };
 
 // ---------------------------------------------------------------------------
-// 文献检索
+// 文献检索 (标准化信封)
 // ---------------------------------------------------------------------------
 
-/** 文献条目 (后端 LiteratureOut, snake_case) */
-export interface LiteratureItem {
+/** 标准化文献条目 (后端统一字段映射, 与底层来源 arXiv/本地库无关) */
+export interface SearchPaper {
+  /** 自动生成的序号 (字符串, 如 "1") */
   id: string;
   title: string;
-  authors: string;
-  year: number;
-  source: string;
+  authors: string[];
   abstract: string;
-  keywords: string;
-  url?: string | null;
+  url: string;
+  /** YYYY-MM-DD, 无则 null */
+  published_date?: string | null;
+  /** 来源名称, 如 arXiv / 本地文献库 */
+  source: string;
 }
 
-/** 检索文献 (关键词匹配标题/摘要/关键词) */
+/** /api/literature/search 标准化响应信封 */
+export interface LiteratureSearchResponse {
+  status: 'success' | 'error';
+  /** 成功提示 / 错误详情 */
+  message?: string;
+  /** 仅 error 时存在: TIMEOUT / NETWORK_ERROR / PARSE_ERROR */
+  code?: string;
+  data?: SearchPaper[];
+}
+
+/** 联网检索文献 (后端 arXiv 优先, 失败自动降级本地文献库) */
 export const searchLiterature = (
   q: string,
   limit = 10
-): Promise<LiteratureItem[]> =>
-  request<LiteratureItem[]>(
+): Promise<LiteratureSearchResponse> =>
+  request<LiteratureSearchResponse>(
     `/literature/search?q=${encodeURIComponent(q)}&limit=${limit}`
   );
 
-/** 生成文献引文 (GB/T 7714 + BibTeX) */
+/** 生成文献引文 (GB/T 7714 + BibTeX, 本地文献库条目) */
 export const getCitation = (
   litId: string
 ): Promise<{ citation: string; bibtex: string }> =>

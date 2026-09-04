@@ -44,6 +44,9 @@ pydantic==2.10.3
 pydantic-settings==2.6.1
 python-dotenv==1.0.1
 
+# --- 联网文献检索 (services/arxiv_client.py 直接依赖) ---
+httpx==0.28.1
+
 # --- 证据包 PDF 渲染 ---
 reportlab==5.0.1
 
