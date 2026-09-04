@@ -31,8 +31,19 @@ orchestrator = OrchestratorService()
 # ---------------------------------------------------------------------------
 # Pydantic Schemas
 # ---------------------------------------------------------------------------
+class LiteratureRefIn(BaseModel):
+    """用户确认的一条文献 (搜索 -> Writer 的唯一显式上下文通道)"""
+
+    title: str = ""
+    authors: List[str] = []
+    abstract: str = ""
+    url: str = ""
+    source: str = ""
+    published_date: Optional[str] = None
+
+
 class AgentInvokeRequest(BaseModel):
-    """触发 Agent 请求体"""
+    """触发 Agent 请求体 (每次只执行 agent_type 指定的那一个 Agent)"""
 
     doc_id: uuid.UUID
     agent_type: AgentType
@@ -40,6 +51,11 @@ class AgentInvokeRequest(BaseModel):
     session_id: Optional[uuid.UUID] = Field(
         default=None,
         description="群聊会话 ID (可选): 传入时在同一会话线程内追加多轮消息",
+    )
+    references: Optional[List[LiteratureRefIn]] = Field(
+        default=None,
+        description="用户确认的文献列表 (title/abstract/authors/url/source); "
+        "writer 步骤由调用方显式传入, 将完整写入 Writer 的 prompt 上下文",
     )
 
 
@@ -93,6 +109,11 @@ class ReviewRequest(BaseModel):
     """审稿请求体"""
 
     doc_id: uuid.UUID
+    text: Optional[str] = Field(
+        default=None,
+        max_length=50000,
+        description="可选: 待审稿正文 (Writer 生成的最终正文); 缺省时读取文档当前内容",
+    )
 
 
 class ReviewIssueOut(BaseModel):
@@ -165,6 +186,11 @@ async def invoke_agent(
         agent_type=payload.agent_type,
         instruction=payload.instruction,
         session_id=str(payload.session_id) if payload.session_id else None,
+        references=(
+            [r.model_dump(exclude_none=True) for r in payload.references]
+            if payload.references
+            else None
+        ),
     )
 
     return {
@@ -278,13 +304,17 @@ async def review_document(
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """
-    审稿人红牌检查: 对文档当前全文执行红牌/黄牌分级审查。
+    审稿人红牌检查: 对正文执行红牌/黄牌分级审查。
 
-    读取数据库中的最新内容 (Markdown 文本), 按段落 (1 起) 定位问题,
-    返回红牌 (error) / 黄牌 (warning) 计数与明细。
+    审查对象优先级:
+      1) payload.text —— Writer 步骤生成的最终正文 (由前端显式传入,
+         满足 Writer -> 审核 的数据传递, 不受文档落库时序影响);
+      2) 缺省时读取数据库中的最新内容 (Markdown 文本)。
+    按段落 (1 起) 定位问题, 返回红牌 (error) / 黄牌 (warning) 计数与明细。
     """
     doc = await _ensure_doc_exists(db, payload.doc_id)
-    result = AcademicReviewEngine.review_document(doc.content or "")
+    text = (payload.text or "").strip() or (doc.content or "")
+    result = AcademicReviewEngine.review_document(text)
     return {
         "doc_id": str(payload.doc_id),
         "passed": result["passed"],

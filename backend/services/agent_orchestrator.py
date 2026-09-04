@@ -86,6 +86,39 @@ def _extract_keywords(text: str) -> List[str]:
             keywords.append(t)
     return keywords or [text.strip()]
 
+
+# 文献上下文上限: 超出截断, 防止超长摘要撑爆 LLM prompt
+_REF_CONTEXT_MAX_CHARS = 2500
+
+
+def _format_references(refs: List[Dict[str, Any]]) -> str:
+    """把用户确认的文献列表序列化为 Writer 的写作上下文。
+
+    数据通道 (搜索 -> 写作): 前端在「确认文献」时显式提交
+    [{title, authors[], abstract, url, source, published_date}],
+    这里按条目完整展开 (作者/标题/来源/链接/摘要), 逐条编号,
+    再作为 Writer LLM prompt 的「研究背景」传入 —— 不做任何中间裁剪。
+    """
+    lines: List[str] = []
+    for i, r in enumerate(refs or [], start=1):
+        if not isinstance(r, dict):
+            continue
+        authors = "、".join(r.get("authors") or [])
+        title = (r.get("title") or "").strip()
+        source = (r.get("source") or "").strip()
+        url = (r.get("url") or "").strip()
+        abstract = (r.get("abstract") or "").strip()
+        head = f"[{i}] {authors}. 《{title}》"
+        if source:
+            head += f"[{source}]"
+        if url:
+            head += f" {url}"
+        lines.append(head)
+        if abstract:
+            lines.append(f"     摘要: {abstract}")
+    joined = "\n".join(lines)
+    return joined[:_REF_CONTEXT_MAX_CHARS]
+
 # ---------------------------------------------------------------------------
 # LangGraph 导入 (需 pip install langgraph)
 # ---------------------------------------------------------------------------
@@ -147,6 +180,9 @@ class State(TypedDict, total=False):
     session_id: str
     research_input: Optional[str]
     research_output: Optional[str]
+    # 用户「确认文献」后显式传入的上下文 (title/abstract/authors/url/source),
+    # Writer 以此作为写作依据 —— 搜索->写作 的数据传递只经此通道, 不落库
+    literature_context: Optional[List[Dict[str, Any]]]
     writing_task: Optional[str]
     draft: Optional[str]
     supervisor_feedback: Optional[str]
@@ -277,8 +313,15 @@ async def writer_agent_node(state: State) -> Dict[str, Any]:
 
     await asyncio.sleep(0.1)  # 统一最小耗时, 保证前端流转可感知
 
-    research = state.get("research_output", "")
     task = (state.get("writing_task") or "").strip()
+    # 写作上下文来源 (严格数据通道):
+    #   1) 用户在「确认文献」步骤显式传入的 literature_context (搜索 -> 写作)
+    #   2) 无确认文献时退回 research_output (直接检索/群聊历史产物)
+    refs = state.get("literature_context") or []
+    if refs:
+        research = _format_references(refs)
+    else:
+        research = state.get("research_output", "")
     engine = "rule"
     draft: Optional[str] = None
 
@@ -486,71 +529,55 @@ def should_retry(state: State) -> Literal["writer", "supervisor"]:
 
 
 # ---------------------------------------------------------------------------
-# 图构建器
+# 图构建器 (单 Agent 单节点)
 # ---------------------------------------------------------------------------
-def build_agent_graph() -> Any:
-    """
-    构建 LangGraph 状态图。
+# 节点名 -> 节点函数映射 (供单步骤图与降级路径共用)
+_NODE_FNS: Dict[str, Callable[[State], Any]] = {
+    "research": research_agent_node,
+    "writer": writer_agent_node,
+    "supervisor": supervisor_agent_node,
+}
 
-    节点:
-      research   -> writer -> supervisor -> END
-                    ^                      |
-                    |______(条件重写)_______|
+
+def build_single_stage_graph(agent_type: AgentType) -> Any:
+    """
+    构建「只运行指定 Agent」的单节点 LangGraph。
+
+    设计约束 (严格串行挂起-确认模式):
+      - 每个 /agents/invoke 只执行 agent_type 对应的那一个节点;
+      - 不存在 research -> writer -> supervisor 的自动串联边,
+        也不存在审稿红牌自动重写循环 —— 任何 Agent 都不得自行触发下一步,
+        下一步只能由前端在对应挂起状态 (SEARCH_DONE / WRITE_DONE /
+        REVIEW_DONE) 下经用户点击按钮后显式发起。
 
     Returns:
         Compiled Graph (可调用的 agent 应用)
     """
+    node = agent_type.value
+    node_fn = _NODE_FNS[node]
+
     if not _LANGGRAPH_AVAILABLE:
-        # 降级: 返回一个可用的同步占位图 (保证后端可启动)
-        class _FallbackGraph:
+        # 降级: 返回可用的同步占位单节点图 (保证后端可启动)
+        class _SingleStageGraph:
             async def ainvoke(self, inputs: dict) -> dict:
-                """模拟图执行 (无 langgraph 时的降级)"""
                 state: State = {
                     **inputs,
-                    "messages": [],
-                    "status": "idle",
-                    "review_rounds": 0,
-                    "rewrite_log": [],
+                    "messages": inputs.get("messages", []),
                 }
-                # 顺序执行三个节点
-                state.update(await research_agent_node(state))
-                state.update(await writer_agent_node(state))
-                state.update(await supervisor_agent_node(state))
-                # 审稿红牌 -> 自动重写闭环 (与 LangGraph 条件边语义一致)
-                while should_retry(state) == "writer":
-                    state.update(await writer_agent_node(state))
-                    state.update(await supervisor_agent_node(state))
-                state["status"] = AgentStatus.COMPLETED.value
+                state.update(await node_fn(state))
+                state["status"] = state.get(
+                    "status", AgentStatus.COMPLETED.value
+                )
                 return state
 
-        print("[AgentOrchestrator] langgraph 未安装, 使用降级顺序图")
-        return _FallbackGraph()
+        print("[AgentOrchestrator] langgraph 未安装, 使用降级单节点图")
+        return _SingleStageGraph()
 
-    # ---- 正式构建 LangGraph ----
+    # ---- 正式构建 LangGraph: 单节点 -> END ----
     graph = StateGraph(State)
-
-    # 添加节点
-    graph.add_node("research", research_agent_node)
-    graph.add_node("writer", writer_agent_node)
-    graph.add_node("supervisor", supervisor_agent_node)
-
-    # 添加边: research -> writer -> supervisor
-    graph.add_edge("research", "writer")
-    graph.add_edge("writer", "supervisor")
-
-    # 条件边: supervisor 根据反馈决定重写或结束
-    graph.add_conditional_edges(
-        "supervisor",
-        should_retry,
-        {
-            "writer": "writer",        # 打回重写
-            "supervisor": END,          # 完成
-        },
-    )
-
-    # 入口
-    graph.set_entry_point("research")
-
+    graph.add_node(node, node_fn)
+    graph.set_entry_point(node)
+    graph.add_edge(node, END)
     return graph.compile()
 
 
@@ -566,7 +593,10 @@ class OrchestratorService:
     """
 
     def __init__(self) -> None:
-        self._graph = build_agent_graph()
+        # 每个 Agent 类型一张「单节点图」: 触发谁只跑谁, 不自动串联下一步
+        self._graphs: Dict[str, Any] = {
+            t.value: build_single_stage_graph(t) for t in AgentType
+        }
         self._sessions: Dict[str, Dict[str, Any]] = {}
         # 每个会话一把锁: 同一会话的并发 invoke 串行执行, 避免消息历史
         # 竞态覆盖 (两个请求同时读到旧历史, 后完成者覆盖先完成者)
@@ -582,23 +612,32 @@ class OrchestratorService:
         agent_type: AgentType,
         instruction: str,
         session_id: Optional[str] = None,
+        references: Optional[List[Dict[str, Any]]] = None,
     ) -> str:
         """
-        启动一个新的 Agent 会话 (或复用群聊会话继续多轮追问)。
+        启动一个 Agent 会话, 仅运行 agent_type 对应的那一个节点。
+
+        严格串行约束:
+          - 不构建 research -> writer -> supervisor 自动串联;
+          - references (用户确认文献) 为「搜索 -> 写作」唯一显式数据通道,
+            仅在本次 writer 会话中作为上下文使用;
+          - 会话状态仅供该 Agent 单步输出与前端轮询, 不自动进入下一步。
 
         Args:
             doc_id:       目标文档 ID
-            agent_type:   触发的 Agent 类型
+            agent_type:   本次要执行的 Agent (research / writer / supervisor)
             instruction:  给 Agent 的指令
             session_id:   可选。传入已存在的会话 ID 时, 复用该会话的消息历史,
-                          三个节点把新消息追加到既有历史 (同一线程内多轮对话);
+                          节点把新消息追加到既有历史 (同一线程内多轮调用);
                           未传或不存在时创建新会话。
+            references:   可选。用户确认的文献列表 (title/abstract/authors/url/
+                          source), writer 步骤由调用方显式传入并写入 prompt。
 
         Returns:
-            session_id (UUID 字符串)。图在后台任务中执行, 前端通过
+            session_id (UUID 字符串)。单节点在后台任务中执行, 前端通过
             /sessions/{id}/state 与 /sessions/{id}/messages 轮询进度与结果。
         """
-        # 群聊会话复用: 继承既有消息历史 (节点以 *state.get("messages") 追加)
+        # 会话复用: 继承既有消息历史 (节点以 *state.get("messages") 追加)
         # 锁只覆盖「快照历史 -> 注册会话」的快速段; 图执行由 _run_session
         # 自行持锁并在执行前重新快照, 保证同会话排队 invoke 不丢历史
         key = session_id if (session_id and session_id in self._sessions) else str(uuid.uuid4())
@@ -615,6 +654,8 @@ class OrchestratorService:
                 "session_id": key,
                 "research_input": instruction,
                 "writing_task": instruction,
+                # 确认文献 -> Writer 上下文 (仅本次会话生效)
+                "literature_context": references or None,
                 "messages": prev_messages,
                 "status": AgentStatus.RUNNING.value,
                 "metadata": {"model": settings.LLM_MODEL},
@@ -654,7 +695,16 @@ class OrchestratorService:
                 )
 
             try:
-                final_state = await self._graph.ainvoke(base_state)
+                # 取该会话归属的单节点图: 只执行发起时指定的 Agent
+                session_type = (
+                    session.get("agent_type") if session is not None else None
+                )
+                agent_type = (
+                    session_type
+                    if isinstance(session_type, AgentType)
+                    else AgentType(session_type or AgentType.SUPERVISOR.value)
+                )
+                final_state = await self._graphs[agent_type.value].ainvoke(base_state)
                 # 消息历史上限: 只保留最近 N 条 (下一轮追问继承截断后的历史)
                 msgs = final_state.get("messages")
                 if isinstance(msgs, list) and len(msgs) > _MAX_SESSION_MESSAGES:

@@ -160,14 +160,21 @@ export interface AgentMessagesResponse {
 }
 
 /**
- * 触发 Agent 运行 (research / writer / supervisor)
+ * 触发单个 Agent 步骤运行 (research / writer / supervisor)
  * 字段与后端 AgentInvokeRequest 对齐: doc_id, agent_type, instruction
+ *
+ * 严格串行挂起-确认模式:
+ *  - 每次调用只执行 agent_type 指定的那一个 Agent (后端无自动串联);
+ *  - references 仅在 writer 步骤使用: 用户「确认文献」时把选中的文献
+ *    (title/abstract/authors/url/source) 显式随请求提交, 后端完整写入
+ *    Writer 的 prompt 作为写作上下文 —— 搜索 -> 写作的数据通道。
  */
 export const triggerAgent = (
   agentType: AgentType,
   docId: string,
   prompt: string,
-  sessionId?: string
+  sessionId?: string,
+  references?: SearchPaper[]
 ) =>
   request<AgentInvokeResponse>('/agents/invoke', {
     method: 'POST',
@@ -175,8 +182,21 @@ export const triggerAgent = (
       agent_type: agentType,
       doc_id: docId,
       instruction: prompt,
-      // 群聊会话: 传入已有 session_id 时在同一线程内追加多轮消息
+      // 同一会话线程内追加多轮消息 (writer 步骤为新会话, 不传)
       ...(sessionId ? { session_id: sessionId } : {}),
+      // 确认文献 -> Writer 上下文 (完整元数据, 由后端序列化进 prompt)
+      ...(references && references.length > 0
+        ? {
+            references: references.map((r) => ({
+              title: r.title,
+              authors: r.authors ?? [],
+              abstract: r.abstract,
+              url: r.url,
+              source: r.source,
+              ...(r.published_date ? { published_date: r.published_date } : {}),
+            })),
+          }
+        : {}),
     }),
   });
 
@@ -248,13 +268,21 @@ interface BackendReviewResponse {
   stats: Record<string, unknown>;
 }
 
-/** 审稿人红牌检查: 对文档当前全文执行红牌/黄牌分级审查 */
+/**
+ * 审核 Agent: 红牌/黄牌分级审查。
+ * 数据传递 (Writer -> 审核): 调用方可传入 text = Writer 生成的最终正文,
+ * 后端优先审查该文本, 不受文档落库时序影响; 缺省时审查文档当前内容。
+ */
 export const reviewDocument = async (
-  docId: string
+  docId: string,
+  text?: string
 ): Promise<ReviewResult> => {
   const raw = await request<BackendReviewResponse>('/agents/review', {
     method: 'POST',
-    body: JSON.stringify({ doc_id: docId }),
+    body: JSON.stringify({
+      doc_id: docId,
+      ...(text !== undefined && text.trim() ? { text } : {}),
+    }),
   });
   return {
     docId: raw.doc_id,

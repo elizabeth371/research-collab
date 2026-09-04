@@ -1,21 +1,45 @@
 import { memo, useEffect, useRef, useState } from 'react';
 import type * as Y from 'yjs';
-import type { AgentMessage, AgentStatus, ReviewResult, RewriteResult } from '@shared/types';
+import type {
+  AgentStatus,
+  ReviewResult,
+  RewriteResult,
+  WatermarkDetectionResult,
+} from '@shared/types';
 import { AgentStatus as AgentStatusEnum, AgentType } from '@shared/types';
-import { triggerAgent, getAgentState, getAgentMessages, reviewDocument, polishText, rewriteDocument, detectDocumentWatermark } from '../../lib/api';
+import {
+  triggerAgent,
+  getAgentState,
+  getAgentMessages,
+  reviewDocument,
+  polishText,
+  rewriteDocument,
+  detectDocumentWatermark,
+  searchLiterature,
+  type SearchPaper,
+} from '../../lib/api';
+import {
+  AGENT_FLOW_META,
+  FLOW_BUSY_STAGES,
+  flowTransition,
+  type AgentFlowAction,
+  type AgentFlowStage,
+} from '../../lib/agentFlow';
 import { appendAiText, AUTHOR_AI } from '../../lib/yjs';
 import { docToMarkdown } from '../../lib/markdown';
 import { getCollabSession } from '../../lib/collab';
 
 /**
- * Agent 群聊左栏
+ * Agent 串行写作流程左栏 (严格挂起-确认模式)
  * ------------------------------------------------------------------
- * 将原「单触发面板」升级为群聊式时间流:
- *  - 用户指令与三个 Agent 的回复按时间顺序排列为聊天气泡
- *  - 同一文档内的多轮对话复用后端会话 (session_id), 消息在同一线程累积
- *  - 每轮发送 = 一次 LangGraph 编排 (research -> writer -> supervisor),
- *    三个 Agent 依次发言; Writer 产出自动以 author=ai 写入 Yjs (蓝色高亮)
- *  - 「开始审稿」将审稿结果以 Supervisor 消息入列, 并保留红牌卡片/润色该段
+ * 三个 Agent (搜索 / Writer / 审核) 之间不存在自动串联: 每一步都挂在
+ * 用户按钮上, 由用户显式点击后才调用对应 Agent (状态机见 lib/agentFlow.ts):
+ *   ① 搜索文献(Search Agent) -> ② 勾选并确认文献 -> ③ Writer 撰写
+ *   -> ④ 提交审核 -> ⑤ 确认并检测(AIGC 水印, 最终步骤) -> 完成
+ *  - 勾选的文献元数据 (title/abstract/authors/url/source) 作为 references
+ *    显式传给后端, 完整进入 Writer 的 prompt;
+ *  - Writer 正文以 author=ai 写入 Yjs (蓝色高亮), 并在左侧留下聊天气泡回放;
+ *  - 审稿结果保留红牌卡片 + 「润色该段」, 红牌可一键自动重写后人工应用。
  */
 
 /** 一条群聊消息 (用户气泡 / Agent 气泡 / 审稿入列消息) */
@@ -29,8 +53,7 @@ interface ChatItem {
   watermarked?: boolean;
 }
 
-/** 会话/线程缓存: 按文档保存, 切换文档或组件重挂载后群聊不丢失 (服务端会话存内存) */
-const sessionCache = new Map<string, string>();
+/** 线程缓存: 按文档保存, 切换文档或组件重挂载后历史对话不丢失 */
 const threadCache = new Map<string, ChatItem[]>();
 
 /** 缓存上限: 只保留最近使用的 N 个文档线程, 防止长会话内存无界增长 */
@@ -87,17 +110,6 @@ const STATUS_META: Record<AgentStatus, { label: string; dot: string }> = {
   error: { label: '出错', dot: 'bg-red-500' },
 };
 
-const ALL_RUNNING: Record<AgentType, AgentStatus> = {
-  research: AgentStatusEnum.RUNNING,
-  writer: AgentStatusEnum.RUNNING,
-  supervisor: AgentStatusEnum.RUNNING,
-};
-const ALL_COMPLETED: Record<AgentType, AgentStatus> = {
-  research: AgentStatusEnum.COMPLETED,
-  writer: AgentStatusEnum.COMPLETED,
-  supervisor: AgentStatusEnum.COMPLETED,
-};
-
 // memo: props (docId/username/ydoc) 在无关 App 状态变化时不变, 跳过重渲染
 export const AgentPanel = memo(function AgentPanel({ docId, username, ydoc }: AgentPanelProps) {
   const [statuses, setStatuses] = useState<Record<AgentType, AgentStatus>>({
@@ -106,12 +118,19 @@ export const AgentPanel = memo(function AgentPanel({ docId, username, ydoc }: Ag
     supervisor: AgentStatusEnum.IDLE,
   });
   const [thread, setThread] = useState<ChatItem[]>(() => threadCache.get(docId) ?? []);
-  const [prompt, setPrompt] = useState('');
-  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // ---- 严格串行流程状态机 (9 态, 流转表见 lib/agentFlow.ts) ----
+  const [stage, setStage] = useState<AgentFlowStage>('idle');
+  const [topic, setTopic] = useState('');
+  const [results, setResults] = useState<SearchPaper[]>([]);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [references, setReferences] = useState<SearchPaper[]>([]);
+  const [writingText, setWritingText] = useState('');
+  const [detection, setDetection] = useState<WatermarkDetectionResult | null>(
+    null
+  );
   // ---- 审稿人红牌状态 (保留卡片 + 润色该段) ----
   const [review, setReview] = useState<ReviewResult | null>(null);
-  const [reviewing, setReviewing] = useState(false);
   const [polishingPara, setPolishingPara] = useState<number | null>(null);
   const [reviewMsg, setReviewMsg] = useState<string | null>(null);
   // ---- 审稿红牌 -> 自动重写 (前后对比 + 应用) ----
@@ -122,16 +141,30 @@ export const AgentPanel = memo(function AgentPanel({ docId, username, ydoc }: Ag
   ydocRef.current = ydoc;
   const docIdRef = useRef(docId);
   docIdRef.current = docId;
-  const sessionIdRef = useRef<string | null>(sessionCache.get(docId) ?? null);
   const threadRef = useRef<HTMLDivElement>(null);
 
-  /** 切换文档时恢复该文档的群聊线程与会话 */
+  // 步骤正在调用 Agent / 联网: 禁用全部按钮并渲染进度动画
+  const busy = FLOW_BUSY_STAGES.has(stage);
+
+  /** 切换文档: 恢复该文档的历史线程, 并将流程状态机重置回 IDLE */
   useEffect(() => {
     setThread(threadCache.get(docId) ?? []);
-    sessionIdRef.current = sessionCache.get(docId) ?? null;
+    setStage('idle');
+    setTopic('');
+    setResults([]);
+    setSelectedIds([]);
+    setReferences([]);
+    setWritingText('');
+    setDetection(null);
     setReview(null);
     setReviewMsg(null);
     setRewriteResult(null);
+    setError(null);
+    setStatuses({
+      research: AgentStatusEnum.IDLE,
+      writer: AgentStatusEnum.IDLE,
+      supervisor: AgentStatusEnum.IDLE,
+    });
   }, [docId]);
 
   /** 追加消息到线程 (同步写回缓存, 按 id 去重) */
@@ -156,45 +189,154 @@ export const AgentPanel = memo(function AgentPanel({ docId, username, ydoc }: Ag
     if (el) el.scrollTo({ top: el.scrollHeight });
   }, [thread, busy]);
 
-  /** 发送指令: 触发一次完整编排, 三个 Agent 依次入列发言 */
-  const handleSend = async () => {
-    const text = prompt.trim();
-    if (!text || busy) return;
-    setPrompt('');
+  /** 状态机流转入口: 校验 (stage, action) 合法后推进; 非法跳步直接拦截 */
+  const go = (action: AgentFlowAction): boolean => {
+    try {
+      setStage((s) => flowTransition(s, action));
+      return true;
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '流程状态异常');
+      return false;
+    }
+  };
+
+  /** 重置本轮流程 (DONE/任意状态 -> IDLE, 可开始新一轮) */
+  const handleResetFlow = () => {
+    setStage('idle');
+    setResults([]);
+    setSelectedIds([]);
+    setReferences([]);
+    setWritingText('');
+    setDetection(null);
+    setReview(null);
+    setRewriteResult(null);
+    setReviewMsg(null);
     setError(null);
-    setBusy(true);
-    setStatuses(ALL_RUNNING);
+  };
+
+  /** ① 搜索步骤: IDLE + 用户点击「搜索」-> SEARCHING -> SEARCH_DONE */
+  const handleSearch = async () => {
+    const keyword = topic.trim();
+    if (!keyword || busy || stage !== 'idle') return;
+    const requestDocId = docId;
+    setError(null);
+    setResults([]);
+    setSelectedIds([]);
+    if (!go('begin_search')) return;
     appendThread([
       {
-        id: `local-${Date.now()}`,
+        id: `query-${Date.now()}`,
         role: 'user',
-        content: text,
+        content: keyword,
         createdAt: new Date().toISOString(),
       },
     ]);
-
+    setStatuses({
+      research: AgentStatusEnum.RUNNING,
+      writer: AgentStatusEnum.IDLE,
+      supervisor: AgentStatusEnum.IDLE,
+    });
     try {
-      // 群聊会话: 首次不传 session_id, 之后复用同一会话实现多轮追问
-      const requestDocId = docId;
-      const { session_id: sessionId } = await triggerAgent(
-        AgentType.RESEARCH,
-        requestDocId,
-        text,
-        sessionIdRef.current ?? undefined
-      );
-      sessionIdRef.current = sessionId;
-      cacheSet(sessionCache, requestDocId, sessionId);
+      const res = await searchLiterature(keyword, 10);
+      if (docIdRef.current !== requestDocId) return;
+      if (res.status === 'success') {
+        const data = res.data ?? [];
+        setResults(data);
+        appendThread([
+          {
+            id: `search-done-${Date.now()}`,
+            role: 'agent',
+            agentType: AgentType.RESEARCH,
+            content:
+              data.length > 0
+                ? `🔬 搜索完成：共检索到 ${data.length} 篇相关文献。请在下方勾选至少 1 篇后点击「确认文献 → Writer 开始写作」。`
+                : '🔬 搜索完成：未找到相关文献，请更换关键词后重新搜索。',
+            createdAt: new Date().toISOString(),
+          },
+        ]);
+        if (data.length === 0) {
+          setError('未检索到相关文献，请更换关键词后重新搜索');
+        }
+        setStatuses({
+          research: AgentStatusEnum.COMPLETED,
+          writer: AgentStatusEnum.IDLE,
+          supervisor: AgentStatusEnum.IDLE,
+        });
+        go('search_succeeded');
+      } else {
+        setError(res.message || '检索失败');
+        setStatuses({
+          research: AgentStatusEnum.ERROR,
+          writer: AgentStatusEnum.IDLE,
+          supervisor: AgentStatusEnum.IDLE,
+        });
+        go('search_failed');
+      }
+    } catch (e) {
+      if (docIdRef.current !== requestDocId) return;
+      setError(e instanceof Error ? e.message : '检索失败，请稍后重试');
+      setStatuses({
+        research: AgentStatusEnum.ERROR,
+        writer: AgentStatusEnum.IDLE,
+        supervisor: AgentStatusEnum.IDLE,
+      });
+      go('search_failed');
+    }
+  };
 
-      // 编排在后端后台任务中运行 (invoke 返回 202): 轮询会话状态直至完成
+  /** 勾选文献 (仅 SEARCH_DONE 状态允许) */
+  const handleToggleSelect = (id: string) => {
+    if (stage !== 'search_done') return;
+    setSelectedIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  };
+
+  /** ③ SEARCH_DONE: 勾选 >=1 篇 + 点击「确认文献」-> WRITING (只跑 Writer) */
+  const handleConfirmLiterature = async () => {
+    if (stage !== 'search_done' || busy) return;
+    const refs = results.filter((r) => selectedIds.includes(r.id));
+    if (refs.length === 0) return;
+    const requestDocId = docId;
+    const writeTopic = topic.trim() || 'AI 水印与版权溯源';
+    setError(null);
+    setReferences(refs);
+    if (!go('confirm_literature')) return;
+    appendThread([
+      {
+        id: `confirm-${Date.now()}`,
+        role: 'user',
+        content: `确认 ${refs.length} 篇文献，请 Writer 基于这些文献撰写正文。`,
+        createdAt: new Date().toISOString(),
+      },
+    ]);
+    setStatuses({
+      research: AgentStatusEnum.COMPLETED,
+      writer: AgentStatusEnum.RUNNING,
+      supervisor: AgentStatusEnum.IDLE,
+    });
+
+    // Writer 指令: 确认文献 (title/abstract/authors/url/source) 由 references
+    // 显式随请求提交, 后端完整序列化进 Writer prompt —— 搜索 -> 写作数据通道
+    const instruction =
+      `请基于用户确认的 ${refs.length} 篇文献，围绕主题「${writeTopic}」` +
+      '撰写规范的中文学术论文正文草稿；必须引用这些文献支撑论点，并完整保留其作者/标题/来源/链接信息；篇幅 300-600 字，直接输出正文。';
+    try {
+      const { session_id: sessionId } = await triggerAgent(
+        AgentType.WRITER,
+        requestDocId,
+        instruction,
+        undefined,
+        refs
+      );
+
+      // Writer 单节点在后台任务中执行 (invoke 返回 202): 轮询直至完成
       const POLL_INTERVAL_MS = 400;
       const POLL_TIMEOUT_MS = 120_000;
       const deadline = Date.now() + POLL_TIMEOUT_MS;
       let finalStatus = '';
       while (Date.now() < deadline) {
-        // 请求期间用户切换了文档: 放弃本次结果, 避免把 AI 产物写进别的文档
-        if (docIdRef.current !== requestDocId) {
-          return;
-        }
+        if (docIdRef.current !== requestDocId) return;
         const state = await getAgentState(sessionId);
         if (state.status === 'completed' || state.status === 'failed') {
           finalStatus = state.status;
@@ -202,15 +344,13 @@ export const AgentPanel = memo(function AgentPanel({ docId, username, ydoc }: Ag
         }
         await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
       }
+      if (!finalStatus) throw new Error('Writer Agent 执行超时');
       if (finalStatus === 'failed') {
-        throw new Error('Agent 编排执行失败, 请查看后端日志');
+        throw new Error('Writer Agent 执行失败，请查看后端日志');
       }
 
       const { messages: msgs } = await getAgentMessages(sessionId);
-      // 轮询期间切换了文档: 结果留存在会话中, 不写入当前界面与文档
-      if (docIdRef.current !== requestDocId) {
-        return;
-      }
+      if (docIdRef.current !== requestDocId) return;
       appendThread(
         msgs.map((m) => ({
           id: m.id,
@@ -222,87 +362,174 @@ export const AgentPanel = memo(function AgentPanel({ docId, username, ydoc }: Ag
         }))
       );
 
-      // Writer 产出: 以 AI 作者身份写入 Yjs 文档 (蓝色高亮)
-      // 审稿红牌触发自动重写时会出现多条 Writer 消息, 取最后一条 (最终修订版)
+      // 正文: 以 AI 作者身份写入 Yjs 文档 (蓝色高亮), 同时保留在流程上下文
       const writerMsgs = msgs.filter((m) => m.agentType === AgentType.WRITER);
       const writerMsg = writerMsgs[writerMsgs.length - 1];
-      if (writerMsg?.content) {
-        appendAiText(getCollabSession(docId).editor, ydocRef.current, writerMsg.content);
+      const text = writerMsg?.content ?? '';
+      setWritingText(text);
+      if (text) {
+        appendAiText(getCollabSession(requestDocId).editor, ydocRef.current, text);
       }
-      setStatuses(ALL_COMPLETED);
+      setStatuses({
+        research: AgentStatusEnum.COMPLETED,
+        writer: AgentStatusEnum.COMPLETED,
+        supervisor: AgentStatusEnum.IDLE,
+      });
+      go('writing_succeeded');
     } catch (e) {
-      setStatuses({ ...ALL_RUNNING, research: AgentStatusEnum.ERROR });
-      setError(e instanceof Error ? e.message : '协同处理失败');
-    } finally {
-      setBusy(false);
+      if (docIdRef.current !== requestDocId) return;
+      setError(e instanceof Error ? e.message : 'Writer 撰写失败');
+      setStatuses({
+        research: AgentStatusEnum.COMPLETED,
+        writer: AgentStatusEnum.ERROR,
+        supervisor: AgentStatusEnum.IDLE,
+      });
+      go('writing_failed'); // 回到 SEARCH_DONE 可重新确认重试
     }
   };
 
-  /** 审稿人: 对文档当前全文执行红牌/黄牌分级审查 (结果入列 Supervisor 消息) */
-  const handleReview = async () => {
-    if (!docId || reviewing) return;
-    setReviewing(true);
-    setReviewMsg(null);
-    setRewriteResult(null);
+  /** 审核结果摘要文案 (Supervisor 消息入列) */
+  const reviewSummaryText = (result: ReviewResult): string =>
+    result.redCards > 0
+      ? `🟥 审稿完成：红牌 ${result.redCards} 项 / 黄牌 ${result.yellowCards} 项，存在严重问题，请优先修改下方卡片。`
+      : result.yellowCards > 0
+        ? `⚠️ 审稿完成：无红牌问题，${result.yellowCards} 条黄牌建议，详见下方卡片。`
+        : '✅ 审稿通过：格式规范，无红牌无黄牌。';
+
+  /** ⑤/⑦ 审核步骤: 只运行审核 Agent (规则红牌引擎), 完成后挂起等待用户 */
+  const runReview = async (action: 'submit_review' | 'resubmit_review') => {
     const requestDocId = docId;
+    setError(null);
+    setRewriteResult(null);
+    setReview(null); // 重新审核时先隐藏旧卡片, 避免展示过期意见
+    setReviewMsg(null);
+    if (!go(action)) return;
+    appendThread([
+      {
+        id: `review-act-${Date.now()}`,
+        role: 'user',
+        content: action === 'submit_review' ? '提交审核' : '重新提交审核',
+        createdAt: new Date().toISOString(),
+      },
+    ]);
+    setStatuses({
+      research: AgentStatusEnum.COMPLETED,
+      writer: AgentStatusEnum.COMPLETED,
+      supervisor: AgentStatusEnum.RUNNING,
+    });
     try {
-      const result = await reviewDocument(requestDocId);
+      // Writer -> 审核 数据传递: 审查对象 = 编辑器当前正文 (含刚生成的正文),
+      // 显式传 text, 不受文档落库时序影响
+      const editor = getCollabSession(requestDocId).editor;
+      const reviewText = editor
+        ? docToMarkdown(editor.state.doc)
+        : writingText || undefined;
+      const result = await reviewDocument(requestDocId, reviewText);
       if (docIdRef.current !== requestDocId) return;
       setReview(result);
-      const summary =
-        result.redCards > 0
-          ? `🟥 审稿完成：红牌 ${result.redCards} 项 / 黄牌 ${result.yellowCards} 项，存在严重问题，请优先修改下方卡片。`
-          : result.yellowCards > 0
-            ? `⚠️ 审稿完成：无红牌问题，${result.yellowCards} 条黄牌建议，详见下方卡片。`
-            : '✅ 审稿通过：格式规范，无红牌无黄牌。';
       appendThread([
         {
           id: `review-${Date.now()}`,
           role: 'agent',
           agentType: AgentType.SUPERVISOR,
-          content: summary,
+          content: reviewSummaryText(result),
           createdAt: new Date().toISOString(),
         },
       ]);
-
-      // 水印检测不再作为独立功能入口: 仅当审稿通过 (无红牌) 后自动触发,
-      // 作为整个流程的最终步骤 (结果持久化 WatermarkRecord + 溯源链日志)
-      if (result.passed) {
-        try {
-          const det = await detectDocumentWatermark(requestDocId);
-          if (docIdRef.current !== requestDocId) return;
-          appendThread([
-            {
-              id: `wm-auto-${Date.now()}`,
-              role: 'agent',
-              agentType: AgentType.SUPERVISOR,
-              content: `🔍 自动水印检测（最终步骤）：全文判定为「${
-                det.isAiGenerated ? 'AI 生成 · 含水印' : '人类创作'
-              }」，z=${det.zScore.toFixed(2)}（阈值 4.0），AI 置信度 ${Math.round(
-                det.confidence * 100
-              )}%。检测已留痕，可在右侧「水印检测」历史记录中复核。`,
-              createdAt: new Date().toISOString(),
-            },
-          ]);
-        } catch (e) {
-          if (docIdRef.current !== requestDocId) return;
-          appendThread([
-            {
-              id: `wm-auto-err-${Date.now()}`,
-              role: 'agent',
-              agentType: AgentType.SUPERVISOR,
-              content: `⚠️ 自动水印检测暂不可用：${
-                e instanceof Error ? e.message : '未知错误'
-              }`,
-              createdAt: new Date().toISOString(),
-            },
-          ]);
-        }
-      }
+      setStatuses({
+        research: AgentStatusEnum.COMPLETED,
+        writer: AgentStatusEnum.COMPLETED,
+        supervisor: AgentStatusEnum.COMPLETED,
+      });
+      go('review_succeeded');
     } catch (e) {
-      setReviewMsg(e instanceof Error ? e.message : '审稿失败');
-    } finally {
-      setReviewing(false);
+      if (docIdRef.current !== requestDocId) return;
+      setReviewMsg(e instanceof Error ? e.message : '审核失败，请稍后重试');
+      appendThread([
+        {
+          id: `review-err-${Date.now()}`,
+          role: 'agent',
+          agentType: AgentType.SUPERVISOR,
+          content: `⚠️ 审核未完成：${e instanceof Error ? e.message : '未知错误'}`,
+          createdAt: new Date().toISOString(),
+        },
+      ]);
+      setStatuses({
+        research: AgentStatusEnum.COMPLETED,
+        writer: AgentStatusEnum.COMPLETED,
+        supervisor: AgentStatusEnum.ERROR,
+      });
+      go('review_failed'); // 回到 WRITE_DONE, 可修改后再次提交审核
+    }
+  };
+
+  /** WRITE_DONE: 「提交审核」按钮入口 */
+  const handleSubmitReview = () => {
+    if (stage !== 'write_done' || busy) return;
+    void runReview('submit_review');
+  };
+
+  /** REVIEW_DONE 且存在红牌: 「重新提交审核」按钮入口 (人工修改后可复审) */
+  const handleResubmitReview = () => {
+    if (stage !== 'review_done' || busy) return;
+    void runReview('resubmit_review');
+  };
+
+  /** ⑦ REVIEW_DONE: 「确认并检测」-> CHECKING (AIGC 水印检测, 无自动下一步) */
+  const handleConfirmDetect = async () => {
+    if (stage !== 'review_done' || busy) return;
+    const requestDocId = docId;
+    setError(null);
+    if (!go('confirm_detect')) return;
+    appendThread([
+      {
+        id: `detect-act-${Date.now()}`,
+        role: 'user',
+        content: '确认并检测（AIGC 水印检测）',
+        createdAt: new Date().toISOString(),
+      },
+    ]);
+    try {
+      // 审核 -> 检测: 检测对象 = Writer 生成正文所在文档 (每文档独立密钥口径)
+      const det = await detectDocumentWatermark(requestDocId);
+      if (docIdRef.current !== requestDocId) return;
+      setDetection(det);
+      appendThread([
+        {
+          id: `detect-${Date.now()}`,
+          role: 'agent',
+          agentType: AgentType.SUPERVISOR,
+          content: `🔍 AIGC 水印检测（最终步骤）：判定为「${
+            det.isAiGenerated ? 'AI 生成 · 含水印' : '人类创作'
+          }」，z=${det.zScore.toFixed(2)}（阈值 4.0），AI 置信度 ${Math.round(
+            det.confidence * 100
+          )}%，已留痕至溯源链与检测历史。`,
+          createdAt: new Date().toISOString(),
+        },
+      ]);
+      setStatuses({
+        research: AgentStatusEnum.COMPLETED,
+        writer: AgentStatusEnum.COMPLETED,
+        supervisor: AgentStatusEnum.COMPLETED,
+      });
+      go('detect_succeeded');
+    } catch (e) {
+      if (docIdRef.current !== requestDocId) return;
+      setError(
+        `AIGC 检测暂不可用：${e instanceof Error ? e.message : '未知错误'}`
+      );
+      appendThread([
+        {
+          id: `detect-err-${Date.now()}`,
+          role: 'agent',
+          agentType: AgentType.SUPERVISOR,
+          content: `⚠️ AIGC 水印检测未完成：${
+            e instanceof Error ? e.message : '未知错误'
+          }`,
+          createdAt: new Date().toISOString(),
+        },
+      ]);
+      go('detect_failed'); // 回到 REVIEW_DONE, 可再次点击重试
     }
   };
 
@@ -449,9 +676,9 @@ export const AgentPanel = memo(function AgentPanel({ docId, username, ydoc }: Ag
     <aside className="w-80 shrink-0 flex flex-col bg-white border-r border-gray-200 h-full min-h-0">
       {/* 面板标题 */}
       <div className="px-4 py-3 border-b border-slate-200">
-        <h2 className="panel-title text-base">Agent 群聊</h2>
+        <h2 className="panel-title text-base">Agent 写作流程</h2>
         <p className="text-[11px] text-slate-400 mt-0.5">
-          多智能体协同 · 同一文档内支持多轮追问
+          搜索 → 写作 → 审核 → 检测 · 每步等待 {username} 确认
         </p>
       </div>
 
@@ -476,8 +703,8 @@ export const AgentPanel = memo(function AgentPanel({ docId, username, ydoc }: Ag
       <div ref={threadRef} className="flex-1 overflow-y-auto px-4 py-3 space-y-3 slim-scroll min-h-0">
         {thread.length === 0 && (
           <div className="text-[11px] text-slate-400 leading-relaxed mt-2">
-            向群里发送指令（如「检索水印算法文献并总结」），三个 Agent 将依次
-            🔬 检索文献 → ✍️ 起草内容 → 🧠 审阅质量。发送多轮指令可继续追问。
+            串行流程：① 搜索文献 → ② 勾选确认 → ③ Writer 撰写 → ④ 提交审核 →
+            ⑤ 确认并 AIGC 检测。每一步都由你点击按钮触发，Agent 不会自动进入下一步。
           </div>
         )}
 
@@ -524,20 +751,18 @@ export const AgentPanel = memo(function AgentPanel({ docId, username, ydoc }: Ag
             <span className="w-7 h-7 rounded-lg border border-slate-200 bg-slate-50 flex items-center justify-center text-sm shrink-0 animate-pulse">
               🤖
             </span>
-            正在协同处理…（🔬 检索 → ✍️ 起草 → 🧠 审阅）
+            {stage === 'searching' && '搜索 Agent 正在联网检索…'}
+            {stage === 'writing' && 'Writer Agent 正在撰写正文…'}
+            {stage === 'reviewing' && '审核 Agent 正在检查…'}
+            {stage === 'checking' && 'AIGC 水印检测执行中…'}
           </div>
         )}
       </div>
 
-      {/* 审稿结果 (审稿人红牌卡片 + 润色该段) */}
-      {(review || reviewing) && (
+      {/* 审稿结果 (审稿人红牌卡片 + 润色该段); 审核完成 (REVIEW_DONE) 后展示 */}
+      {review && (
         <div className="border-t border-slate-200 px-4 py-3 bg-slate-50/50">
-          {reviewing && !review && (
-            <div className="text-xs text-slate-500">审稿人正在检查文档规范...</div>
-          )}
-          {review && (
-            <>
-              {review.redCards > 0 ? (
+          {review.redCards > 0 ? (
                 <div className="review-banner review-banner-red" role="alert">
                   🟥 审稿人红牌警告 · {review.redCards} 项严重问题，请优先修改
                 </div>
@@ -640,60 +865,242 @@ export const AgentPanel = memo(function AgentPanel({ docId, username, ydoc }: Ag
                   </div>
                 </div>
               )}
-            </>
-          )}
         </div>
       )}
 
-      {/* 快速动作: 仅保留检索/审稿; 撰写走主对话流程 (确认文献后再写作) */}
-      <div className="flex items-center gap-1.5 px-4 pt-2.5 border-t border-slate-100">
-        <button
-          onClick={() => setPrompt('帮我检索关于 AI 水印 (watermark) 与版权溯源的文献并总结')}
-          className="text-[11px] px-2 py-1 rounded-md border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors"
-        >
-          🔬 检索文献
-        </button>
-        <button
-          onClick={handleReview}
-          disabled={reviewing}
-          className="text-[11px] px-2 py-1 rounded-md border border-red-200 text-red-600 bg-red-50 hover:bg-red-100 disabled:opacity-40 transition-colors"
-        >
-          {reviewing ? '审稿中...' : '🧠 开始审稿'}
-        </button>
-      </div>
+      {/* 流程操作台: 严格串行挂起-确认 (按钮随状态机显隐/禁用) */}
+      <div className="border-t border-slate-200 px-4 pt-2.5 pb-3 space-y-2">
+        <div className="flex items-center justify-between">
+          <span className="text-[10px] font-medium text-slate-500">
+            Agent 流程 · {AGENT_FLOW_META[stage].label}
+          </span>
+          {busy && (
+            <span className="text-[10px] text-accent animate-pulse">
+              正在调用 Agent，请勿重复操作…
+            </span>
+          )}
+        </div>
 
-      {/* 指令输入区 */}
-      <div className="border-t border-slate-200 p-3">
         {error && (
-          <div className="mb-2 text-[11px] text-red-500 bg-red-50 rounded px-2 py-1">
+          <div className="text-[11px] text-red-500 bg-red-50 rounded px-2 py-1.5">
             {error}
           </div>
         )}
-        <textarea
-          value={prompt}
-          onChange={(e) => setPrompt(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-              e.preventDefault();
-              void handleSend();
-            }
-          }}
-          placeholder="给 Agent 群发指令，如：检索关于水印算法的文献并总结…（Enter 发送 / Shift+Enter 换行）"
-          rows={2}
-          className="w-full text-xs p-2.5 rounded-md border border-slate-300 focus:outline-none focus:ring-2 focus:ring-accent/30 resize-none"
-        />
-        <div className="mt-1.5 flex items-center justify-between">
-          <p className="text-[10px] text-slate-400">
-            当前用户: {username} · AI 产出将自动以蓝色高亮写入文档
-          </p>
-          <button
-            onClick={() => void handleSend()}
-            disabled={busy || !prompt.trim()}
-            className="text-[11px] font-medium px-3 py-1 rounded-md bg-ink text-white hover:bg-ink-hover disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-          >
-            {busy ? '处理中...' : '发送'}
-          </button>
-        </div>
+
+        {/* IDLE: 输入检索主题/写作要求 -> 点击「搜索」进入 SEARCHING */}
+        {stage === 'idle' && (
+          <div className="space-y-1.5">
+            <p className="text-[10px] text-slate-400 leading-relaxed">
+              输入科研主题/写作要求后点击「搜索」：Agent 只会执行你点击的下一步，
+              不会自动串联后续步骤。
+            </p>
+            <textarea
+              value={topic}
+              onChange={(e) => setTopic(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  void handleSearch();
+                }
+              }}
+              placeholder="例如：AI 文本水印 / CRDT 协同 / 多 Agent 科研协作…"
+              rows={2}
+              className="w-full text-xs p-2.5 rounded-md border border-slate-300 focus:outline-none focus:ring-2 focus:ring-accent/30 resize-none"
+            />
+            <button
+              onClick={() => void handleSearch()}
+              disabled={busy || !topic.trim()}
+              className="w-full text-xs font-medium px-3 py-2 rounded-lg bg-ink text-white hover:bg-ink-hover disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            >
+              🔬 搜索文献（搜索 Agent）
+            </button>
+          </div>
+        )}
+
+        {/* SEARCHING / WRITING / REVIEWING / CHECKING: 进度提示 */}
+        {(stage === 'searching' ||
+          stage === 'writing' ||
+          stage === 'reviewing' ||
+          stage === 'checking') && (
+          <div className="flex items-center gap-2 text-[11px] text-slate-500">
+            <span className="inline-block w-3.5 h-3.5 rounded-full border-2 border-slate-300 border-t-accent animate-spin" />
+            {stage === 'searching' && '搜索 Agent 正在联网检索文献…'}
+            {stage === 'writing' &&
+              `Writer Agent 正在基于 ${references.length} 篇确认文献撰写正文…`}
+            {stage === 'reviewing' && '审核 Agent 正在检查正文规范（红牌/黄牌）…'}
+            {stage === 'checking' && '正在执行 AIGC 水印检测（最终步骤）…'}
+          </div>
+        )}
+
+        {/* SEARCH_DONE: 展示文献列表(可勾选) + 「确认文献」按钮 */}
+        {stage === 'search_done' && (
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-semibold text-slate-600">
+                文献结果（{results.length}）
+              </span>
+              <button
+                onClick={handleResetFlow}
+                className="text-[10px] text-slate-400 underline underline-offset-2 hover:text-slate-600"
+              >
+                重新搜索
+              </button>
+            </div>
+            {results.length === 0 ? (
+              <p className="text-[11px] text-slate-400 py-2">
+                未找到文献，请点击「重新搜索」更换关键词。
+              </p>
+            ) : (
+              <ul className="space-y-1.5 max-h-44 overflow-y-auto slim-scroll pr-0.5">
+                {results.map((item) => {
+                  const checked = selectedIds.includes(item.id);
+                  return (
+                    <li key={item.id}>
+                      <label
+                        className={`flex items-start gap-2 p-2 rounded-md border cursor-pointer transition-colors ${
+                          checked
+                            ? 'border-accent bg-accent/5'
+                            : 'border-slate-200 bg-slate-50/60'
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => handleToggleSelect(item.id)}
+                          className="w-3.5 h-3.5 accent-accent mt-0.5"
+                        />
+                        <span className="flex-1 min-w-0">
+                          <span className="block text-[11px] leading-snug text-slate-700 line-clamp-2">
+                            {item.title}
+                          </span>
+                          <span className="block text-[10px] text-slate-400 mt-0.5">
+                            {(item.authors ?? []).slice(0, 3).join('、') ||
+                              '佚名'}
+                            {item.source ? ` · ${item.source}` : ''}
+                          </span>
+                        </span>
+                      </label>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+            <div className="flex items-center justify-between pt-1.5 border-t border-slate-100">
+              <span className="text-[10px] text-slate-400">
+                已选 {selectedIds.length} 篇（文献元数据将显式传入 Writer）
+              </span>
+              <button
+                onClick={() => void handleConfirmLiterature()}
+                disabled={busy || selectedIds.length === 0}
+                className="text-[11px] font-medium px-3 py-1.5 rounded-lg bg-accent text-white hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-opacity"
+              >
+                确认文献 → Writer 开始写作
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* WRITE_DONE: 「提交审核」按钮 */}
+        {stage === 'write_done' && (
+          <div className="space-y-2">
+            <p className="text-[11px] text-slate-500 leading-relaxed">
+              ✍️ 正文已生成并写入文档（AI 蓝色标记，{writingText.length} 字）。
+              可先人工查看/修改，确认后提交审核。
+            </p>
+            <button
+              onClick={handleSubmitReview}
+              disabled={busy}
+              className="w-full text-[11px] font-medium px-3 py-2 rounded-lg bg-red-600 text-white hover:bg-red-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            >
+              提交审核（审核 Agent）
+            </button>
+          </div>
+        )}
+
+        {/* REVIEW_DONE: 「确认并检测」/「重新提交审核」(红牌时) */}
+        {stage === 'review_done' && (
+          <div className="space-y-2">
+            <p className="text-[11px] text-slate-500 leading-relaxed">
+              🧠 审核意见见上方卡片。
+              {review && !review.passed
+                ? '存在红牌问题：可修改正文后点击「重新提交审核」，或直接执行最终 AIGC 检测。'
+                : '点击下方按钮执行 AIGC 水印检测作为最终步骤。'}
+            </p>
+            {review && !review.passed && (
+              <button
+                onClick={handleResubmitReview}
+                disabled={busy}
+                className="w-full text-[11px] font-medium px-3 py-1.5 rounded-lg border border-slate-300 text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              >
+                重新提交审核
+              </button>
+            )}
+            <button
+              onClick={() => void handleConfirmDetect()}
+              disabled={busy}
+              className="w-full text-[11px] font-medium px-3 py-2 rounded-lg bg-accent text-white hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            >
+              确认并检测（AIGC 水印检测）
+            </button>
+          </div>
+        )}
+
+        {/* DONE: 最终检测报告 + 新一轮 */}
+        {stage === 'done' && (
+          <div className="space-y-2 rounded-lg border border-emerald-200 bg-emerald-50/50 p-2.5">
+            {detection ? (
+              <>
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-semibold text-emerald-800">
+                    ✅ 流程完成 · 最终报告
+                  </span>
+                  <span
+                    className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${
+                      detection.isAiGenerated
+                        ? 'bg-blue-100 text-blue-700'
+                        : 'bg-green-100 text-green-700'
+                    }`}
+                  >
+                    {detection.isAiGenerated ? 'AI 生成 · 含水印' : '人类创作'}
+                  </span>
+                </div>
+                <div className="grid grid-cols-3 gap-1.5 text-center text-[10px]">
+                  <div className="bg-white rounded border border-emerald-100 px-1 py-1">
+                    <div className="text-slate-400">z 统计量</div>
+                    <div className="font-mono font-semibold text-slate-700">
+                      {detection.zScore.toFixed(2)}
+                    </div>
+                  </div>
+                  <div className="bg-white rounded border border-emerald-100 px-1 py-1">
+                    <div className="text-slate-400">AI 置信度</div>
+                    <div className="font-mono font-semibold text-slate-700">
+                      {Math.round(detection.confidence * 100)}%
+                    </div>
+                  </div>
+                  <div className="bg-white rounded border border-emerald-100 px-1 py-1">
+                    <div className="text-slate-400">绿名单命中</div>
+                    <div className="font-mono font-semibold text-slate-700">
+                      {Math.round(detection.greenFraction * 100)}%
+                    </div>
+                  </div>
+                </div>
+                <p className="text-[10px] text-emerald-700/70">
+                  检测结果已留痕至溯源链与检测历史，可在右侧面板复核。
+                </p>
+              </>
+            ) : (
+              <p className="text-[11px] text-amber-600">
+                ⚠️ 检测步骤未产生可用结果，请点击下方按钮重试或开始新一轮。
+              </p>
+            )}
+            <button
+              onClick={handleResetFlow}
+              className="w-full text-[11px] font-medium px-3 py-1.5 rounded-lg border border-emerald-300 text-emerald-700 hover:bg-emerald-50 disabled:opacity-40 transition-colors"
+            >
+              开始新一轮流程
+            </button>
+          </div>
+        )}
       </div>
     </aside>
   );
