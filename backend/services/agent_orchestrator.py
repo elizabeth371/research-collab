@@ -183,6 +183,11 @@ class State(TypedDict, total=False):
     # 用户「确认文献」后显式传入的上下文 (title/abstract/authors/url/source),
     # Writer 以此作为写作依据 —— 搜索->写作 的数据传递只经此通道, 不落库
     literature_context: Optional[List[Dict[str, Any]]]
+    # Writer 结构化输入规范 (任务 E):
+    #   {user_topic, confirmed_literature[{title,authors,abstract,url,...}],
+    #    additional_requirements}
+    # writer 步骤优先消费此结构; 缺省时退回 writing_task + literature_context
+    writer_input: Optional[Dict[str, Any]]
     writing_task: Optional[str]
     draft: Optional[str]
     supervisor_feedback: Optional[str]
@@ -313,11 +318,13 @@ async def writer_agent_node(state: State) -> Dict[str, Any]:
 
     await asyncio.sleep(0.1)  # 统一最小耗时, 保证前端流转可感知
 
-    task = (state.get("writing_task") or "").strip()
-    # 写作上下文来源 (严格数据通道):
-    #   1) 用户在「确认文献」步骤显式传入的 literature_context (搜索 -> 写作)
-    #   2) 无确认文献时退回 research_output (直接检索/群聊历史产物)
-    refs = state.get("literature_context") or []
+    # ---- 结构化输入解析 (任务 E 调用契约) ----
+    # 优先消费 writer_input = {user_topic, confirmed_literature,
+    # additional_requirements}; 缺省时退回 writing_task + literature_context。
+    wi = state.get("writer_input") or {}
+    task = (wi.get("user_topic") or state.get("writing_task") or "").strip()
+    extra_req = (wi.get("additional_requirements") or "").strip()
+    refs = wi.get("confirmed_literature") or state.get("literature_context") or []
     if refs:
         research = _format_references(refs)
     else:
@@ -387,19 +394,67 @@ async def writer_agent_node(state: State) -> Dict[str, Any]:
         if llm_client.is_available():
             # 步骤 12: 按目标文档的独立密钥/参数构建引擎 (每文档水印互不可伪造)
             wm = await load_document_engine(state.get("doc_id"))
-            messages = llm_client.draft_messages(task, research)
-            watermarked = await wm.generate_watermarked(llm_client, messages)
-            if watermarked:
-                draft = watermarked
+            if refs:
+                # 结构化契约: 输出为「标题 + 参考文献 + 正文」Markdown,
+                # 预算留足格式开销 (水印路径 max_tokens 提升到 1000)
+                messages = llm_client.writer_messages(task, refs, extra_req)
+                watermarked = await wm.generate_watermarked(
+                    llm_client, messages, max_tokens=1000
+                )
+                if watermarked:
+                    draft = watermarked
+                else:
+                    # 水印链路失败 (如 logprobs 被拒) -> 退回普通 LLM 生成
+                    draft = await llm_client.write_writer_draft(
+                        task, refs, extra_req
+                    )
             else:
-                # 水印链路失败 (如 logprobs 被拒) -> 退回普通 LLM 生成
-                draft = await llm_client.write_draft(task, research)
+                # 无确认文献: 保持旧契约 (自由研究背景草稿)
+                messages = llm_client.draft_messages(task, research)
+                watermarked = await wm.generate_watermarked(llm_client, messages)
+                if watermarked:
+                    draft = watermarked
+                else:
+                    draft = await llm_client.write_draft(task, research)
     except Exception as e:  # pragma: no cover - LLM 失败不阻断流程
         print(f"[WriterAgent] LLM 草稿生成失败 ({type(e).__name__}: {e}), 降级模板")
 
-    # ---- 2. 规则/模板降级 ----
+    # ---- 2. 规则/模板降级 (同样满足结构化 Markdown 输出契约) ----
     if draft:
         engine = "llm"
+    elif refs:
+
+        def _ref_line(i: int, r: Dict[str, Any]) -> str:
+            authors = "、".join(r.get("authors") or []) or "佚名"
+            title = (r.get("title") or "").strip()
+            source = (r.get("source") or "").strip()
+            year = (r.get("published_date") or "").strip()
+            line = f'[{i}] {authors}. "{title}"'
+            if source:
+                line += f" [{source}]"
+            if year:
+                line += f" ({year})"
+            return line + "."
+
+        ref_lines = "\n".join(
+            _ref_line(i, r) for i, r in enumerate(refs, start=1) if isinstance(r, dict)
+        )
+        cite_marks = "".join(f"[{i}]" for i in range(1, len(refs) + 1))
+        extra_note = f"\n\n> 附加要求：{extra_req}" if extra_req else ""
+        draft = (
+            f"# 文献综述：{task or 'AI 水印与版权溯源研究进展'}\n\n"
+            f"## 参考文献\n{ref_lines}\n\n"
+            "## 正文\n"
+            f"围绕「{task or 'AI 水印与版权溯源'}」这一主题，现有工作主要沿"
+            f"三条路径展开。其一，基于绿名单重采样的字符级水印方法在生成"
+            f"阶段注入统计特征，可在不改变语义的前提下实现可检测溯源"
+            f"{cite_marks}。其二，面向科研诚信的多 Agent 协同写作框架把"
+            f"检索、撰写、审核拆分为可审计的独立步骤，使每一步产出均可"
+            f"追溯。其三，协同编辑与版本留痕技术（哈希操作链、Yjs 实时"
+            f"同步）为 AI 生成内容的版权归属提供了工程基础。综合来看，"
+            f"将水印检测嵌入审核流程的末端，可在保证写作效率的同时形成闭环"
+            f"证据链，是本方向值得进一步验证的关键问题。{extra_note}"
+        )
     else:
         draft = (
             "【模拟写作草稿 · 规则模式】\n"
@@ -613,14 +668,15 @@ class OrchestratorService:
         instruction: str,
         session_id: Optional[str] = None,
         references: Optional[List[Dict[str, Any]]] = None,
+        writer_input: Optional[Dict[str, Any]] = None,
     ) -> str:
         """
         启动一个 Agent 会话, 仅运行 agent_type 对应的那一个节点。
 
         严格串行约束:
           - 不构建 research -> writer -> supervisor 自动串联;
-          - references (用户确认文献) 为「搜索 -> 写作」唯一显式数据通道,
-            仅在本次 writer 会话中作为上下文使用;
+          - writer_input / references (用户确认文献) 为「搜索 -> 写作」唯一
+            显式数据通道, 仅在本次 writer 会话中作为上下文使用;
           - 会话状态仅供该 Agent 单步输出与前端轮询, 不自动进入下一步。
 
         Args:
@@ -632,12 +688,16 @@ class OrchestratorService:
                           未传或不存在时创建新会话。
             references:   可选。用户确认的文献列表 (title/abstract/authors/url/
                           source), writer 步骤由调用方显式传入并写入 prompt。
+            writer_input: 可选。Writer 结构化输入规范
+                          {user_topic, confirmed_literature, additional_requirements},
+                          writer 步骤优先消费; 其 confirmed_literature 同时作为
+                          literature_context 的回退来源。
 
         Returns:
             session_id (UUID 字符串)。单节点在后台任务中执行, 前端通过
             /sessions/{id}/state 与 /sessions/{id}/messages 轮询进度与结果。
         """
-        # 会话复用: 继承既有消息历史 (节点以 *state.get("messages") 追加)
+        # 会话复用: 继承既有消息历史 (节点以 *state.get("messages")* 追加)
         # 锁只覆盖「快照历史 -> 注册会话」的快速段; 图执行由 _run_session
         # 自行持锁并在执行前重新快照, 保证同会话排队 invoke 不丢历史
         key = session_id if (session_id and session_id in self._sessions) else str(uuid.uuid4())
@@ -648,6 +708,12 @@ class OrchestratorService:
             else:
                 prev_messages = []
 
+            # 文献上下文回退: 只给了 writer_input 时, 从中提取确认文献
+            lit_ctx = references or None
+            if lit_ctx is None and writer_input:
+                confirmed = writer_input.get("confirmed_literature") or []
+                lit_ctx = confirmed or None
+
             # 构建初始 State
             initial_state: State = {
                 "doc_id": doc_id,
@@ -655,7 +721,9 @@ class OrchestratorService:
                 "research_input": instruction,
                 "writing_task": instruction,
                 # 确认文献 -> Writer 上下文 (仅本次会话生效)
-                "literature_context": references or None,
+                "literature_context": lit_ctx,
+                # Writer 结构化输入规范 (任务 E 调用契约)
+                "writer_input": writer_input or None,
                 "messages": prev_messages,
                 "status": AgentStatus.RUNNING.value,
                 "metadata": {"model": settings.LLM_MODEL},

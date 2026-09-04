@@ -213,6 +213,90 @@ class LLMClient:
         )
 
     # ------------------------------------------------------------------
+    # Writer 结构化输入/输出契约 (任务 E)
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _format_ref_list(references: List[Dict[str, Any]]) -> str:
+        """把确认文献格式化为编号清单 (内嵌进 Writer prompt, 与输出编号对应)。"""
+        lines: List[str] = []
+        for i, r in enumerate(references or [], start=1):
+            if not isinstance(r, dict):
+                continue
+            authors = ", ".join(r.get("authors") or []) or "佚名"
+            title = (r.get("title") or "").strip()
+            source = (r.get("source") or "").strip()
+            year = (r.get("published_date") or "").strip()[:4]
+            url = (r.get("url") or "").strip()
+            abstract = (r.get("abstract") or "").strip()
+            head = f"[{i}] {authors}. \"{title}\"."
+            venue = "/".join(x for x in (source, year) if x)
+            if venue:
+                head += f" {venue}."
+            if url:
+                head += f" {url}"
+            lines.append(head)
+            if abstract:
+                lines.append(f"    摘要: {abstract}")
+        return "\n".join(lines)
+
+    def writer_messages(
+        self,
+        user_topic: str,
+        references: List[Dict[str, Any]],
+        additional_requirements: str = "",
+    ) -> List[Dict[str, str]]:
+        """
+        Writer 结构化生成的 prompt 消息组 (system + user)。
+
+        输入契约: {user_topic, confirmed_literature, additional_requirements}。
+        输出契约: Markdown 纯文本正文 —— 以 `# 标题` 开头, 随后
+        `## 参考文献` (按 [1]、[2]… 逐条列出给定文献), 再 `## 正文`
+        (300-600 字, 行文中以 [n] 对应引用)。
+        """
+        topic = (user_topic or "").strip() or "AI 水印与版权溯源研究进展"
+        ref_list = self._format_ref_list(references)
+        extra = (additional_requirements or "").strip()
+        prompt = (
+            "请根据给定的研究主题与确认文献清单, 撰写一篇 Markdown 格式的"
+            "中文学术文献综述。\n"
+            f"\n【研究主题】\n{topic}\n"
+            f"\n【确认文献】\n{ref_list}\n"
+            "\n【输出格式要求 (必须严格遵守)】\n"
+            "只输出 Markdown 纯文本 (不要用代码围栏包裹), 结构为:\n"
+            "1. 第一行为一级标题 `# <标题>` (概括综述主题);\n"
+            "2. 接着是 `## 参考文献` 小节: 按 `[1] 作者. \"标题.\" 来源 年份.`"
+            "的格式逐条列出上述全部文献, 编号与确认文献一一对应;\n"
+            "3. 接着是 `## 正文` 小节: 300-600 字, 逻辑连贯、观点明确, "
+            "引用观点时使用 [n] 标注 (n 与参考文献编号对应);\n"
+            "4. 不得虚构确认文献清单之外的文献。\n"
+        )
+        if extra:
+            prompt += f"\n【用户附加要求】\n{extra}\n"
+        return [
+            {
+                "role": "system",
+                "content": "你是一位严谨的中文学术论文写作者, 擅长撰写结构规范的文献综述。",
+            },
+            {"role": "user", "content": prompt},
+        ]
+
+    async def write_writer_draft(
+        self,
+        user_topic: str,
+        references: List[Dict[str, Any]],
+        additional_requirements: str = "",
+    ) -> Optional[str]:
+        """
+        Writer 结构化生成: 按输出契约产出 Markdown 正文。
+        无 Key / 调用失败返回 None (调用方回退到规则模板)。
+        """
+        return await self.chat(
+            self.writer_messages(user_topic, references, additional_requirements),
+            temperature=0.7,
+            max_tokens=1500,
+        )
+
+    # ------------------------------------------------------------------
     # 水印专用: 返回每位置 top-N 候选 (token, logprob)
     # ------------------------------------------------------------------
     async def generate_with_logprobs(

@@ -159,22 +159,43 @@ export interface AgentMessagesResponse {
   total: number;
 }
 
+/** Writer Agent 结构化输入契约 (任务 E): 与后端 WriterInputIn 对齐 */
+export interface WriterInput {
+  /** 用户最初输入的研究主题 */
+  user_topic: string;
+  /** 用户勾选确认的文献 (完整元数据) */
+  confirmed_literature: SearchPaper[];
+  /** 用户额外要求 (字数/格式等, 可选) */
+  additional_requirements?: string;
+}
+
+/** 文献 -> 后端传输结构 (title/abstract/authors/url/source/published_date) */
+const mapRefForBackend = (r: SearchPaper) => ({
+  title: r.title,
+  authors: r.authors ?? [],
+  abstract: r.abstract,
+  url: r.url,
+  source: r.source,
+  ...(r.published_date ? { published_date: r.published_date } : {}),
+});
+
 /**
  * 触发单个 Agent 步骤运行 (research / writer / supervisor)
  * 字段与后端 AgentInvokeRequest 对齐: doc_id, agent_type, instruction
  *
  * 严格串行挂起-确认模式:
  *  - 每次调用只执行 agent_type 指定的那一个 Agent (后端无自动串联);
- *  - references 仅在 writer 步骤使用: 用户「确认文献」时把选中的文献
- *    (title/abstract/authors/url/source) 显式随请求提交, 后端完整写入
- *    Writer 的 prompt 作为写作上下文 —— 搜索 -> 写作的数据通道。
+ *  - writer 步骤使用结构化输入契约 writer_input = {user_topic,
+ *    confirmed_literature, additional_requirements}; 同时把确认文献作为
+ *    references 冗余提交, 兼容旧字段回退路径 —— 搜索 -> 写作的数据通道。
  */
 export const triggerAgent = (
   agentType: AgentType,
   docId: string,
   prompt: string,
   sessionId?: string,
-  references?: SearchPaper[]
+  references?: SearchPaper[],
+  writerInput?: WriterInput
 ) =>
   request<AgentInvokeResponse>('/agents/invoke', {
     method: 'POST',
@@ -186,15 +207,22 @@ export const triggerAgent = (
       ...(sessionId ? { session_id: sessionId } : {}),
       // 确认文献 -> Writer 上下文 (完整元数据, 由后端序列化进 prompt)
       ...(references && references.length > 0
+        ? { references: references.map(mapRefForBackend) }
+        : {}),
+      // Writer 结构化输入契约 (优先于 references 被后端消费)
+      ...(writerInput
         ? {
-            references: references.map((r) => ({
-              title: r.title,
-              authors: r.authors ?? [],
-              abstract: r.abstract,
-              url: r.url,
-              source: r.source,
-              ...(r.published_date ? { published_date: r.published_date } : {}),
-            })),
+            writer_input: {
+              user_topic: writerInput.user_topic,
+              confirmed_literature:
+                writerInput.confirmed_literature.map(mapRefForBackend),
+              ...(writerInput.additional_requirements?.trim()
+                ? {
+                    additional_requirements:
+                      writerInput.additional_requirements.trim(),
+                  }
+                : {}),
+            },
           }
         : {}),
     }),

@@ -163,14 +163,22 @@ async def test_document_watermark_detect_persists(client):
 async def test_literature_search_and_citation(client):
     resp = await client.get("/api/literature/search?q=watermark&limit=10")
     assert resp.status_code == 200
-    items = resp.json()
+    body = resp.json()
+    # 统一响应信封: {status, message?, data: SearchPaper[]} (arXiv 在线优先,
+    # 本地降级), 与前端 searchLiterature 消费的格式一致
+    assert body["status"] == "success"
+    items = body["data"]
     assert len(items) >= 1
     # 命中结果应包含水印相关文献
     titles = " ".join(i["title"] for i in items).lower()
     assert "watermark" in titles
 
-    # 引文生成 (GB/T 7714)
-    lit_id = items[0]["id"]
+    # 引文生成 (GB/T 7714): 引文接口面向本地库文献 (UUID 主键);
+    # 在线 arXiv 命中项的 id 为 arXiv 编号不走此路径, 故用空关键词
+    # 取本地入库文献做断言 (结果确定性不依赖网络)
+    local = (await client.get("/api/literature/search?q=&limit=10")).json()
+    assert local["status"] == "success" and local["data"]
+    lit_id = local["data"][0]["id"]
     cite = (await client.get(f"/api/literature/{lit_id}/citation")).json()
     assert cite["citation"].endswith(".")
     assert cite["bibtex"].startswith("@article") or cite["bibtex"].startswith("@misc")
@@ -180,7 +188,10 @@ async def test_literature_search_and_citation(client):
 async def test_literature_empty_search_returns_seed(client):
     resp = await client.get("/api/literature/search?q=&limit=10")
     assert resp.status_code == 200
-    assert len(resp.json()) >= 8  # 种子语料
+    body = resp.json()
+    assert body["status"] == "success"
+    # 空关键词 -> 本地文献库最近入库文献 (种子语料 9 条, limit=10)
+    assert len(body["data"]) >= 8
 
 
 # ---------------------------------------------------------------------------

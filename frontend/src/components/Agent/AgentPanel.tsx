@@ -25,8 +25,8 @@ import {
   type AgentFlowAction,
   type AgentFlowStage,
 } from '../../lib/agentFlow';
-import { appendAiText, AUTHOR_AI } from '../../lib/yjs';
-import { docToMarkdown } from '../../lib/markdown';
+import { appendAiMarkdown, AUTHOR_AI } from '../../lib/yjs';
+import { docToMarkdown, markdownToHtml } from '../../lib/markdown';
 import { getCollabSession } from '../../lib/collab';
 
 /**
@@ -126,6 +126,17 @@ export const AgentPanel = memo(function AgentPanel({ docId, username, ydoc }: Ag
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [references, setReferences] = useState<SearchPaper[]>([]);
   const [writingText, setWritingText] = useState('');
+  // ---- Writer 结构化输出展示 (预览/编辑双模式) ----
+  /** 附加要求 (字数/格式等, 随 writer_input 提交, 可选) */
+  const [extraReq, setExtraReq] = useState('');
+  /** write_done: true=编辑模式 (可编辑文本框), false=Markdown 预览 */
+  const [writingEditMode, setWritingEditMode] = useState(false);
+  /** 本轮正文是否已写入文档 (防止重复追加) */
+  const [docWritten, setDocWritten] = useState(false);
+  /** 已写入文档的正文版本 (判断写入后是否有未同步的编辑) */
+  const [writtenSnapshot, setWrittenSnapshot] = useState('');
+  /** write_done 区操作反馈文案 */
+  const [writeMsg, setWriteMsg] = useState<string | null>(null);
   const [detection, setDetection] = useState<WatermarkDetectionResult | null>(
     null
   );
@@ -154,7 +165,12 @@ export const AgentPanel = memo(function AgentPanel({ docId, username, ydoc }: Ag
     setResults([]);
     setSelectedIds([]);
     setReferences([]);
+    setExtraReq('');
     setWritingText('');
+    setWritingEditMode(false);
+    setDocWritten(false);
+    setWrittenSnapshot('');
+    setWriteMsg(null);
     setDetection(null);
     setReview(null);
     setReviewMsg(null);
@@ -206,7 +222,12 @@ export const AgentPanel = memo(function AgentPanel({ docId, username, ydoc }: Ag
     setResults([]);
     setSelectedIds([]);
     setReferences([]);
+    setExtraReq('');
     setWritingText('');
+    setWritingEditMode(false);
+    setDocWritten(false);
+    setWrittenSnapshot('');
+    setWriteMsg(null);
     setDetection(null);
     setReview(null);
     setRewriteResult(null);
@@ -316,18 +337,27 @@ export const AgentPanel = memo(function AgentPanel({ docId, username, ydoc }: Ag
       supervisor: AgentStatusEnum.IDLE,
     });
 
-    // Writer 指令: 确认文献 (title/abstract/authors/url/source) 由 references
-    // 显式随请求提交, 后端完整序列化进 Writer prompt —— 搜索 -> 写作数据通道
+    // Writer 结构化输入契约: {user_topic, confirmed_literature,
+    // additional_requirements} 随请求显式提交; references 冗余提交兼容旧字段。
+    // 后端据此生成结构化 Markdown 正文 (# 标题 + ## 参考文献 + ## 正文)。
     const instruction =
       `请基于用户确认的 ${refs.length} 篇文献，围绕主题「${writeTopic}」` +
-      '撰写规范的中文学术论文正文草稿；必须引用这些文献支撑论点，并完整保留其作者/标题/来源/链接信息；篇幅 300-600 字，直接输出正文。';
+      '撰写规范的中文学术文献综述；输出 Markdown 纯文本正文：开头以 # 标题起，' +
+      '随后 ## 参考文献（按 [1]、[2] 编号列出确认文献），再 ## 正文' +
+      '（300-600 字，行文中以 [n] 对应引用）。' +
+      (extraReq.trim() ? `用户附加要求：${extraReq.trim()}` : '');
     try {
       const { session_id: sessionId } = await triggerAgent(
         AgentType.WRITER,
         requestDocId,
         instruction,
         undefined,
-        refs
+        refs,
+        {
+          user_topic: writeTopic,
+          confirmed_literature: refs,
+          additional_requirements: extraReq,
+        }
       );
 
       // Writer 单节点在后台任务中执行 (invoke 返回 202): 轮询直至完成
@@ -362,14 +392,15 @@ export const AgentPanel = memo(function AgentPanel({ docId, username, ydoc }: Ag
         }))
       );
 
-      // 正文: 以 AI 作者身份写入 Yjs 文档 (蓝色高亮), 同时保留在流程上下文
+      // 正文: 先进入面板「预览/编辑」区 (Markdown 渲染, 可手动修改),
+      // 由用户显式点击「写入文档」或「提交审核」时才写入 Yjs —— 保证
+      // 最终落库/送审的就是用户确认过的版本
       const writerMsgs = msgs.filter((m) => m.agentType === AgentType.WRITER);
       const writerMsg = writerMsgs[writerMsgs.length - 1];
       const text = writerMsg?.content ?? '';
       setWritingText(text);
-      if (text) {
-        appendAiText(getCollabSession(requestDocId).editor, ydocRef.current, text);
-      }
+      setWritingEditMode(false);
+      setDocWritten(false);
       setStatuses({
         research: AgentStatusEnum.COMPLETED,
         writer: AgentStatusEnum.COMPLETED,
@@ -386,6 +417,28 @@ export const AgentPanel = memo(function AgentPanel({ docId, username, ydoc }: Ag
       });
       go('writing_failed'); // 回到 SEARCH_DONE 可重新确认重试
     }
+  };
+
+  /**
+   * WRITE_DONE: 把面板当前正文 (可能已被用户编辑) 写入文档。
+   * 结构化 Markdown 插入 (标题/参考文献/正文按真实排版渲染, AI 蓝色标记);
+   * 追加语义 —— 写入后继续编辑可再次写入更新版本。
+   */
+  const handleWriteToDoc = (): boolean => {
+    if (!writingText.trim()) {
+      setWriteMsg('⚠️ 正文为空，无法写入文档');
+      return false;
+    }
+    const editor = getCollabSession(docId).editor;
+    const ok = appendAiMarkdown(editor, ydocRef.current, writingText);
+    if (ok) {
+      setDocWritten(true);
+      setWrittenSnapshot(writingText);
+      setWriteMsg('✅ 已写入文档（AI 蓝色标记 · 结构化排版）');
+    } else {
+      setWriteMsg('⚠️ 写入失败：编辑器未就绪，请稍后重试');
+    }
+    return ok;
   };
 
   /** 审核结果摘要文案 (Supervisor 消息入列) */
@@ -418,12 +471,15 @@ export const AgentPanel = memo(function AgentPanel({ docId, username, ydoc }: Ag
       supervisor: AgentStatusEnum.RUNNING,
     });
     try {
-      // Writer -> 审核 数据传递: 审查对象 = 编辑器当前正文 (含刚生成的正文),
-      // 显式传 text, 不受文档落库时序影响
+      // Writer -> 审核 数据传递: 审查对象 = 面板内用户最终确认的正文
+      // (可能已手动编辑), 显式传 text, 不受文档落库时序影响;
+      // 面板正文缺失时退回编辑器当前内容
       const editor = getCollabSession(requestDocId).editor;
-      const reviewText = editor
-        ? docToMarkdown(editor.state.doc)
-        : writingText || undefined;
+      const reviewText = writingText.trim()
+        ? writingText
+        : editor
+          ? docToMarkdown(editor.state.doc)
+          : undefined;
       const result = await reviewDocument(requestDocId, reviewText);
       if (docIdRef.current !== requestDocId) return;
       setReview(result);
@@ -463,9 +519,15 @@ export const AgentPanel = memo(function AgentPanel({ docId, username, ydoc }: Ag
     }
   };
 
-  /** WRITE_DONE: 「提交审核」按钮入口 */
+  /** WRITE_DONE: 「提交审核」按钮入口 (未写入文档时先同步最终版本) */
   const handleSubmitReview = () => {
     if (stage !== 'write_done' || busy) return;
+    if (!docWritten) {
+      // 文档尚无本轮正文: 先写入用户确认的最终版本,
+      // 保证流程末端的文档级 AIGC 检测与审核对象一致
+      if (!handleWriteToDoc()) return;
+    }
+    setWriteMsg(null);
     void runReview('submit_review');
   };
 
@@ -752,7 +814,7 @@ export const AgentPanel = memo(function AgentPanel({ docId, username, ydoc }: Ag
               🤖
             </span>
             {stage === 'searching' && '搜索 Agent 正在联网检索…'}
-            {stage === 'writing' && 'Writer Agent 正在撰写正文…'}
+            {stage === 'writing' && '正在组织文献综述…'}
             {stage === 'reviewing' && '审核 Agent 正在检查…'}
             {stage === 'checking' && 'AIGC 水印检测执行中…'}
           </div>
@@ -926,7 +988,7 @@ export const AgentPanel = memo(function AgentPanel({ docId, username, ydoc }: Ag
             <span className="inline-block w-3.5 h-3.5 rounded-full border-2 border-slate-300 border-t-accent animate-spin" />
             {stage === 'searching' && '搜索 Agent 正在联网检索文献…'}
             {stage === 'writing' &&
-              `Writer Agent 正在基于 ${references.length} 篇确认文献撰写正文…`}
+              `正在组织文献综述…（基于 ${references.length} 篇确认文献撰写结构化正文）`}
             {stage === 'reviewing' && '审核 Agent 正在检查正文规范（红牌/黄牌）…'}
             {stage === 'checking' && '正在执行 AIGC 水印检测（最终步骤）…'}
           </div>
@@ -985,6 +1047,13 @@ export const AgentPanel = memo(function AgentPanel({ docId, username, ydoc }: Ag
                 })}
               </ul>
             )}
+            {/* 附加要求 (可选): 随 writer_input.additional_requirements 提交 */}
+            <input
+              value={extraReq}
+              onChange={(e) => setExtraReq(e.target.value)}
+              placeholder="附加要求（可选）：如正文不少于 500 字、突出方法对比…"
+              className="w-full text-[11px] px-2.5 py-1.5 rounded-md border border-slate-200 bg-white focus:outline-none focus:ring-1 focus:ring-accent/40"
+            />
             <div className="flex items-center justify-between pt-1.5 border-t border-slate-100">
               <span className="text-[10px] text-slate-400">
                 已选 {selectedIds.length} 篇（文献元数据将显式传入 Writer）
@@ -1000,20 +1069,77 @@ export const AgentPanel = memo(function AgentPanel({ docId, username, ydoc }: Ag
           </div>
         )}
 
-        {/* WRITE_DONE: 「提交审核」按钮 */}
+        {/* WRITE_DONE: Markdown 预览/编辑双模式 + 写入文档 + 提交审核 */}
         {stage === 'write_done' && (
           <div className="space-y-2">
-            <p className="text-[11px] text-slate-500 leading-relaxed">
-              ✍️ 正文已生成并写入文档（AI 蓝色标记，{writingText.length} 字）。
-              可先人工查看/修改，确认后提交审核。
-            </p>
-            <button
-              onClick={handleSubmitReview}
-              disabled={busy}
-              className="w-full text-[11px] font-medium px-3 py-2 rounded-lg bg-red-600 text-white hover:bg-red-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-            >
-              提交审核（审核 Agent）
-            </button>
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-semibold text-slate-600">
+                ✍️ 生成正文 · {writingText.length} 字
+              </span>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => setWritingEditMode(false)}
+                  className={`text-[10px] px-2 py-0.5 rounded transition-colors ${
+                    !writingEditMode
+                      ? 'bg-accent text-white'
+                      : 'text-slate-500 hover:bg-slate-100'
+                  }`}
+                >
+                  预览
+                </button>
+                <button
+                  onClick={() => setWritingEditMode(true)}
+                  className={`text-[10px] px-2 py-0.5 rounded transition-colors ${
+                    writingEditMode
+                      ? 'bg-accent text-white'
+                      : 'text-slate-500 hover:bg-slate-100'
+                  }`}
+                >
+                  编辑
+                </button>
+              </div>
+            </div>
+
+            {writingEditMode ? (
+              /* 编辑模式: 可编辑文本框 (提交审核前允许手动修改) */
+              <textarea
+                value={writingText}
+                onChange={(e) => setWritingText(e.target.value)}
+                rows={10}
+                placeholder="Markdown 正文（# 标题 / ## 参考文献 / ## 正文）…"
+                className="w-full text-[11px] font-mono leading-relaxed p-2.5 rounded-md border border-slate-300 focus:outline-none focus:ring-2 focus:ring-accent/30 resize-y slim-scroll"
+              />
+            ) : (
+              /* 预览模式: Markdown 渲染 (markdown-it, html:false 已防注入) */
+              <div
+                className="agent-md max-h-64 overflow-y-auto slim-scroll rounded-md border border-slate-200 bg-white p-2.5"
+                dangerouslySetInnerHTML={{ __html: markdownToHtml(writingText) }}
+              />
+            )}
+
+            {docWritten && writtenSnapshot !== writingText && (
+              <p className="text-[10px] text-amber-600">
+                写入后又编辑了正文：再次点击「写入文档」会把更新版本追加到文档末尾。
+              </p>
+            )}
+            {writeMsg && <p className="text-[10px] text-slate-500">{writeMsg}</p>}
+
+            <div className="flex gap-1.5">
+              <button
+                onClick={handleWriteToDoc}
+                disabled={busy || !writingText.trim()}
+                className="flex-1 text-[11px] font-medium px-2 py-2 rounded-lg border border-accent text-accent hover:bg-accent/5 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              >
+                📄 写入文档（AI 蓝色标记）
+              </button>
+              <button
+                onClick={handleSubmitReview}
+                disabled={busy}
+                className="flex-1 text-[11px] font-medium px-2 py-2 rounded-lg bg-red-600 text-white hover:bg-red-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              >
+                提交审核（审核 Agent）
+              </button>
+            </div>
           </div>
         )}
 

@@ -1,6 +1,7 @@
 import * as Y from 'yjs';
 import type { Editor } from '@tiptap/react';
 import type { Document } from '@shared/types';
+import { markdownToHtml } from './markdown';
 
 /**
  * Yjs 协同工具库
@@ -202,6 +203,114 @@ export function appendAiText(
   text: string
 ): boolean {
   return appendText(editor, ydoc, text, AUTHOR_AI);
+}
+
+/**
+ * 以 AI 作者身份向文档末尾追加一段 Markdown 正文 (结构化插入)。
+ *
+ * 与 appendAiText 的区别: 内容经 markdownToHtml -> DOMParser 解析为
+ * Tiptap JSON 结构 (标题/段落/列表/引用等), 每个文本节点携带 author mark,
+ * 因此 Writer 的结构化输出 (「# 标题 / ## 参考文献 / ## 正文」) 在编辑器
+ * 里按真实排版渲染, 且整体保持 AI 蓝色高亮可溯源。
+ *
+ * 只追加不清空 (保护已有人工内容); 编辑器未就绪时退化为纯文本插入。
+ */
+export function appendAiMarkdown(
+  editor: Editor | null,
+  ydoc: Y.Doc,
+  markdown: string
+): boolean {
+  const text = (markdown ?? '').trim();
+  if (!text) return false;
+  if (!editor || !editor.isEditable) {
+    return appendText(editor, ydoc, text, AUTHOR_AI);
+  }
+
+  // markdown.ts 只依赖外部库 (无循环引用风险), 静态导入于文件顶部
+  const html = markdownToHtml(text);
+  const dom = new DOMParser().parseFromString(html, 'text/html');
+
+  const MARKS = [{ type: 'author', attrs: { author: AUTHOR_AI } }];
+  const inline = (el: Element): unknown[] => {
+    const out: unknown[] = [];
+    el.childNodes.forEach((n) => {
+      if (n.nodeType === Node.TEXT_NODE) {
+        const t = n.textContent ?? '';
+        if (t) out.push({ type: 'text', text: t, marks: MARKS });
+      } else if (n.nodeType === Node.ELEMENT_NODE) {
+        out.push(...inline(n as Element));
+      }
+    });
+    return out;
+  };
+  const block = (el: Element): unknown | null => {
+    const tag = el.tagName.toLowerCase();
+    const content = inline(el);
+    switch (tag) {
+      case 'h1':
+      case 'h2':
+      case 'h3':
+      case 'h4':
+      case 'h5':
+      case 'h6':
+        return {
+          type: 'heading',
+          attrs: { level: Number(tag[1]) },
+          ...(content.length ? { content } : {}),
+        };
+      case 'ul':
+      case 'ol': {
+        const items = Array.from(el.children)
+          .filter((li) => li.tagName.toLowerCase() === 'li')
+          .map((li) => {
+            const c = inline(li);
+            return {
+              type: 'listItem',
+              content: [
+                { type: 'paragraph', ...(c.length ? { content: c } : {}) },
+              ],
+            };
+          });
+        return items.length
+          ? { type: tag === 'ol' ? 'orderedList' : 'bulletList', content: items }
+          : null;
+      }
+      case 'blockquote':
+        return {
+          type: 'blockquote',
+          content: [{ type: 'paragraph', ...(content.length ? { content } : {}) }],
+        };
+      case 'pre': {
+        const code = el.textContent ?? '';
+        return {
+          type: 'codeBlock',
+          ...(code ? { content: [{ type: 'text', text: code }] } : {}),
+        };
+      }
+      case 'hr':
+        return { type: 'horizontalRule' };
+      case 'p':
+      case 'div':
+        return {
+          type: 'paragraph',
+          ...(content.length ? { content } : {}),
+        };
+      default:
+        return content.length
+          ? { type: 'paragraph', content }
+          : null;
+    }
+  };
+
+  const nodes = Array.from(dom.body.children)
+    .map(block)
+    .filter((n): n is object => n !== null);
+  if (nodes.length === 0) {
+    return appendText(editor, ydoc, text, AUTHOR_AI);
+  }
+
+  editor.commands.insertContentAt(editor.state.doc.content.size, nodes);
+  return true;
 }
 
 /**

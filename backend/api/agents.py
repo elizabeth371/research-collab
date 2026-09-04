@@ -42,6 +42,20 @@ class LiteratureRefIn(BaseModel):
     published_date: Optional[str] = None
 
 
+class WriterInputIn(BaseModel):
+    """Writer Agent 结构化输入规范 (writer 步骤的标准调用契约)
+
+    前端在「确认文献」时构造并随 /agents/invoke 提交:
+      user_topic              用户最初输入的研究主题
+      confirmed_literature    用户勾选确认的文献 (完整元数据)
+      additional_requirements 用户额外要求 (字数/格式等, 可选)
+    """
+
+    user_topic: str = ""
+    confirmed_literature: List[LiteratureRefIn] = []
+    additional_requirements: str = ""
+
+
 class AgentInvokeRequest(BaseModel):
     """触发 Agent 请求体 (每次只执行 agent_type 指定的那一个 Agent)"""
 
@@ -56,6 +70,11 @@ class AgentInvokeRequest(BaseModel):
         default=None,
         description="用户确认的文献列表 (title/abstract/authors/url/source); "
         "writer 步骤由调用方显式传入, 将完整写入 Writer 的 prompt 上下文",
+    )
+    writer_input: Optional[WriterInputIn] = Field(
+        default=None,
+        description="Writer 结构化输入 (user_topic/confirmed_literature/"
+        "additional_requirements); writer 步骤优先使用, 缺省时退回 references",
     )
 
 
@@ -189,6 +208,18 @@ async def invoke_agent(
         references=(
             [r.model_dump(exclude_none=True) for r in payload.references]
             if payload.references
+            else None
+        ),
+        writer_input=(
+            {
+                "user_topic": payload.writer_input.user_topic,
+                "confirmed_literature": [
+                    r.model_dump(exclude_none=True)
+                    for r in payload.writer_input.confirmed_literature
+                ],
+                "additional_requirements": payload.writer_input.additional_requirements,
+            }
+            if payload.writer_input
             else None
         ),
     )

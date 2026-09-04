@@ -62,13 +62,16 @@ def _map_local_items(rows: List[Literature]) -> List[dict]:
     字段映射 (Mapping): literature 表行 -> 标准化文献结构,
     与 arXiv 在线结果共用同一份契约 (id/title/authors[]/abstract/url/
     published_date/source), 严禁把 ORM 原始对象直接抛给前端。
+
+    id 使用文献真实 UUID 主键 (而非位置序号): 详情 /citation 等
+    按 {lit_id} 路由的端点以 UUID 定位本地库记录, 序号 id 无法寻址。
     """
     data: List[dict] = []
-    for idx, row in enumerate(rows, start=1):
+    for row in rows:
         authors_raw = (row.authors or "").strip()
         data.append(
             {
-                "id": str(idx),
+                "id": str(row.id),
                 "title": (row.title or "").strip() or "(无标题)",
                 "authors": [a.strip() for a in authors_raw.split(",") if a.strip()],
                 "abstract": (row.abstract or "").strip(),
