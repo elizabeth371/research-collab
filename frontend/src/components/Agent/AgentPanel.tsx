@@ -2,7 +2,7 @@ import { memo, useEffect, useRef, useState } from 'react';
 import type * as Y from 'yjs';
 import type { AgentMessage, AgentStatus, ReviewResult, RewriteResult } from '@shared/types';
 import { AgentStatus as AgentStatusEnum, AgentType } from '@shared/types';
-import { triggerAgent, getAgentState, getAgentMessages, reviewDocument, polishText, rewriteDocument } from '../../lib/api';
+import { triggerAgent, getAgentState, getAgentMessages, reviewDocument, polishText, rewriteDocument, detectDocumentWatermark } from '../../lib/api';
 import { appendAiText, AUTHOR_AI } from '../../lib/yjs';
 import { docToMarkdown } from '../../lib/markdown';
 import { getCollabSession } from '../../lib/collab';
@@ -244,8 +244,10 @@ export const AgentPanel = memo(function AgentPanel({ docId, username, ydoc }: Ag
     setReviewing(true);
     setReviewMsg(null);
     setRewriteResult(null);
+    const requestDocId = docId;
     try {
-      const result = await reviewDocument(docId);
+      const result = await reviewDocument(requestDocId);
+      if (docIdRef.current !== requestDocId) return;
       setReview(result);
       const summary =
         result.redCards > 0
@@ -262,6 +264,41 @@ export const AgentPanel = memo(function AgentPanel({ docId, username, ydoc }: Ag
           createdAt: new Date().toISOString(),
         },
       ]);
+
+      // 水印检测不再作为独立功能入口: 仅当审稿通过 (无红牌) 后自动触发,
+      // 作为整个流程的最终步骤 (结果持久化 WatermarkRecord + 溯源链日志)
+      if (result.passed) {
+        try {
+          const det = await detectDocumentWatermark(requestDocId);
+          if (docIdRef.current !== requestDocId) return;
+          appendThread([
+            {
+              id: `wm-auto-${Date.now()}`,
+              role: 'agent',
+              agentType: AgentType.SUPERVISOR,
+              content: `🔍 自动水印检测（最终步骤）：全文判定为「${
+                det.isAiGenerated ? 'AI 生成 · 含水印' : '人类创作'
+              }」，z=${det.zScore.toFixed(2)}（阈值 4.0），AI 置信度 ${Math.round(
+                det.confidence * 100
+              )}%。检测已留痕，可在右侧「水印检测」历史记录中复核。`,
+              createdAt: new Date().toISOString(),
+            },
+          ]);
+        } catch (e) {
+          if (docIdRef.current !== requestDocId) return;
+          appendThread([
+            {
+              id: `wm-auto-err-${Date.now()}`,
+              role: 'agent',
+              agentType: AgentType.SUPERVISOR,
+              content: `⚠️ 自动水印检测暂不可用：${
+                e instanceof Error ? e.message : '未知错误'
+              }`,
+              createdAt: new Date().toISOString(),
+            },
+          ]);
+        }
+      }
     } catch (e) {
       setReviewMsg(e instanceof Error ? e.message : '审稿失败');
     } finally {
@@ -608,19 +645,13 @@ export const AgentPanel = memo(function AgentPanel({ docId, username, ydoc }: Ag
         </div>
       )}
 
-      {/* 快速动作 */}
+      {/* 快速动作: 仅保留检索/审稿; 撰写走主对话流程 (确认文献后再写作) */}
       <div className="flex items-center gap-1.5 px-4 pt-2.5 border-t border-slate-100">
         <button
           onClick={() => setPrompt('帮我检索关于 AI 水印 (watermark) 与版权溯源的文献并总结')}
           className="text-[11px] px-2 py-1 rounded-md border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors"
         >
           🔬 检索文献
-        </button>
-        <button
-          onClick={() => setPrompt('请基于已检索的文献，撰写论文引言章节草稿')}
-          className="text-[11px] px-2 py-1 rounded-md border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors"
-        >
-          ✍️ 撰写草稿
         </button>
         <button
           onClick={handleReview}
