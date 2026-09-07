@@ -10,6 +10,7 @@
 - /{lit_id}, /{lit_id}/citation: 本地文献详情与引文格式文本 (不变)。
 """
 
+import re
 import uuid
 from typing import List, Optional
 
@@ -52,6 +53,99 @@ class CitationOut(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# 中文检索增强: arXiv 只索引英文, 中文查询需领域词映射; 本地降级按词匹配
+# ---------------------------------------------------------------------------
+_CJK_RE = re.compile(r"[一-鿿]")
+
+# 领域术语 中文 -> arXiv 英文检索词 (最长匹配优先)
+_CJK_EN_MAP = {
+    "大语言模型": "large language model",
+    "音频水印": "audio watermark",
+    "语音水印": "speech audio watermark",
+    "文本水印": "text watermark",
+    "图像水印": "image watermark",
+    "视频水印": "video watermark",
+    "大模型": "large language model",
+    "协同编辑": "collaborative editing",
+    "实时协同": "real-time collaboration",
+    "科研诚信": "research integrity",
+    "学术诚信": "research integrity",
+    "人工智能": "artificial intelligence",
+    "机器学习": "machine learning",
+    "深度学习": "deep learning",
+    "自然语言": "natural language",
+    "注意力机制": "attention mechanism",
+    "版权保护": "copyright protection",
+    "注意力": "attention",
+    "水印": "watermark",
+    "溯源": "provenance",
+    "版权": "copyright",
+}
+
+# 中文口语/无检索价值词 (jieba 分词后过滤)
+_CJK_STOPWORDS = {
+    "你好", "您好", "我想", "我要", "我们", "请帮", "帮我", "请问",
+    "一个", "一篇", "相关", "论文", "文章", "介绍", "综述", "方面",
+    "写", "写一个", "寻找", "查找", "搜索", "关于", "的", "了", "吗",
+    "呢", "啊", "吧", "和", "与", "及", "等", "相关",
+}
+
+
+def _has_cjk(text: str) -> bool:
+    return bool(_CJK_RE.search(text or ""))
+
+
+def _cjk_to_english(keyword: str) -> Optional[str]:
+    """把中文查询映射为英文检索词 (arXiv 只索引英文)。
+
+    最长匹配优先扫描领域词典; 未命中词典的中文词不臆造翻译,
+    由本地分词降级兜底。返回 None 表示无可映射词。
+    """
+    if not _has_cjk(keyword):
+        return None
+    terms: List[str] = []
+    rest = keyword
+    # 最长匹配优先, 避免 "音频水印" 被 "水印" 抢先
+    for zh in sorted(_CJK_EN_MAP, key=len, reverse=True):
+        if zh in rest:
+            en = _CJK_EN_MAP[zh]
+            if en not in terms:
+                terms.append(en)
+            rest = rest.replace(zh, " ")
+    # 非中文部分 (英文单词/术语) 原样保留
+    ascii_part = re.findall(r"[A-Za-z][A-Za-z0-9 \-]*", rest)
+    for chunk in ascii_part:
+        for w in chunk.split():
+            if w.lower() not in [t.lower() for t in terms]:
+                terms.append(w)
+    return " ".join(terms) if terms else None
+
+
+def _expand_keywords(keyword: str) -> List[str]:
+    """本地检索用关键词展开: 中文按 jieba 分词 + 词典英文词, 任一命中即可。"""
+    tokens: List[str] = []
+    if _has_cjk(keyword):
+        try:
+            import jieba
+
+            for w in jieba.cut(keyword):
+                w = w.strip()
+                if len(w) >= 2 and w not in _CJK_STOPWORDS:
+                    if w not in tokens:
+                        tokens.append(w)
+        except Exception:  # jieba 不可用时退化为整串
+            tokens.append(keyword)
+        en = _cjk_to_english(keyword)
+        if en:
+            for w in en.split():
+                if w.lower() not in [t.lower() for t in tokens]:
+                    tokens.append(w)
+    else:
+        tokens.append(keyword)
+    return tokens or [keyword]
+
+
+# ---------------------------------------------------------------------------
 # API 端点
 # ---------------------------------------------------------------------------
 # ---------------------------------------------------------------------------
@@ -86,18 +180,26 @@ def _map_local_items(rows: List[Literature]) -> List[dict]:
 async def _search_local(
     db: AsyncSession, keyword: str, limit: int
 ) -> List[Literature]:
-    """本地文献表包含匹配 (标题/摘要/关键词/作者); 空关键词返回最近入库。"""
+    """本地文献表匹配 (标题/摘要/关键词/作者); 空关键词返回最近入库。
+
+    中文关键词先经 _expand_keywords 展开为词元 (jieba 分词 + 词典英文词),
+    任一词元命中即算匹配 —— 避免「音频水印」这类组合词因整串不匹配而漏检。
+    """
     stmt = select(Literature).order_by(Literature.year.desc())
     if keyword:
-        like = f"%{keyword}%"
-        stmt = stmt.where(
-            or_(
-                Literature.title.ilike(like),
-                Literature.abstract.ilike(like),
-                Literature.keywords.ilike(like),
-                Literature.authors.ilike(like),
+        conditions = []
+        for token in _expand_keywords(keyword):
+            like = f"%{token}%"
+            conditions.append(
+                or_(
+                    Literature.title.ilike(like),
+                    Literature.abstract.ilike(like),
+                    Literature.keywords.ilike(like),
+                    Literature.authors.ilike(like),
+                )
             )
-        )
+        if conditions:
+            stmt = stmt.where(or_(*conditions))
     stmt = stmt.limit(limit)
     result = await db.execute(stmt)
     return list(result.scalars().all())
@@ -131,6 +233,13 @@ async def search_literature(
         }
 
     online = await search_arxiv_standard(keyword, max_results=limit)
+
+    # 中文查询: arXiv 仅索引英文, 原查询为空时补一次领域词英译检索
+    # (如「音频水印」-> "audio watermark"); 仍为空则走本地分词降级
+    if online.get("status") == "success" and not online.get("data"):
+        en_query = _cjk_to_english(keyword)
+        if en_query:
+            online = await search_arxiv_standard(en_query, max_results=limit)
 
     # 联网成功且非空 -> 直接返回
     if online.get("status") == "success" and online.get("data"):
