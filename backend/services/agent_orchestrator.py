@@ -119,6 +119,97 @@ def _format_references(refs: List[Dict[str, Any]]) -> str:
     joined = "\n".join(lines)
     return joined[:_REF_CONTEXT_MAX_CHARS]
 
+
+_REF_HEAD_RE = re.compile(r"^#{1,6}\s*(参考文献|references)\s*$", re.I)
+_BODY_HEAD_RE = re.compile(r"^#{1,6}\s*(正文|body|main\s*text)\s*$", re.I)
+
+
+def _split_long_text(text: str, limit: int = 260) -> str:
+    """把超长单段文本按句读在 limit 字附近切分为多段 (空行分隔)。"""
+    text = (text or "").strip()
+    if len(text) <= limit:
+        return text
+    sentences = re.split(r"(?<=[。；！？])", text)
+    paragraphs: List[str] = []
+    buf = ""
+    for s in sentences:
+        if not s:
+            continue
+        if buf and len(buf) + len(s) > limit:
+            paragraphs.append(buf)
+            buf = s
+        else:
+            buf += s
+    if buf:
+        paragraphs.append(buf)
+    return "\n\n".join(paragraphs)
+
+
+def _normalize_writer_markdown(draft: str, topic: str) -> str:
+    """Writer 输出的结构后处理 (保证输出契约与可读性):
+
+    1. 提取/补齐三段结构: 「# 标题」「## 参考文献」「## 正文」;
+    2. 正文按句读切分为多段 (每段约 260 字), 杜绝整篇一个超长段落
+       (审稿「段落过长」黄牌的根源);
+    3. 参考文献条目逐行独立。
+    """
+    raw = (draft or "").strip()
+    if not raw:
+        return raw
+
+    # 按 markdown 标题切分区块
+    lines = raw.split("\n")
+    title = ""
+    ref_lines: List[str] = []
+    body_lines: List[str] = []
+    section = "pre"  # pre / ref / body
+    for ln in lines:
+        s = ln.strip()
+        if not s:
+            continue
+        if s.startswith("#"):
+            if _REF_HEAD_RE.match(s):
+                section = "ref"
+                continue
+            if _BODY_HEAD_RE.match(s):
+                section = "body"
+                continue
+            if not title:
+                title = s.lstrip("#").strip()
+                section = "pre"
+                continue
+            # 正文内部的其它小标题归入正文
+            if section == "body":
+                body_lines.append(s)
+            continue
+        if section == "ref":
+            ref_lines.append(s)
+        elif section == "body":
+            body_lines.append(s)
+        else:
+            # 标题之前的散行: 形如 [n] 的归参考文献, 否则归正文
+            if re.match(r"^\[\d{1,3}\]", s):
+                ref_lines.append(s)
+            else:
+                body_lines.append(s)
+
+    if not title:
+        title = f"文献综述：{topic or '研究进展'}"
+    if not ref_lines:
+        # 模型未列参考文献时不虚构, 仅保留正文
+        sections = [f"# {title}"]
+    else:
+        sections = [f"# {title}", "## 参考文献", "\n".join(ref_lines)]
+
+    body = "\n".join(body_lines).strip()
+    # 正文内的单换行先合并为连续文本, 再按句读统一分段
+    body = re.sub(r"\s*\n\s*", "", body)
+    body = _split_long_text(body, 260)
+    if body:
+        sections.append("## 正文")
+        sections.append(body)
+    return "\n\n".join(sections)
+
 # ---------------------------------------------------------------------------
 # LangGraph 导入 (需 pip install langgraph)
 # ---------------------------------------------------------------------------
@@ -385,37 +476,22 @@ async def writer_agent_node(state: State) -> Dict[str, Any]:
         }
 
     # ---- 1. LLM 真实生成 (可插拔, 无 key 自动跳过) ----
-    # 生成路径优先走「logprobs 重采样水印」: 请求 DeepSeek 返回每位置
-    # top-N 候选, 本地按绿名单重新采样 —— 产出草稿天然带可检测水印。
+    # 正文生成统一走纯 LLM 路径 (temperature 0.7, 无重采样):
+    # 绿名单 logprobs 重采样会大量替换中文 token, 产出乱码不可读文本并
+    # 摧毁分段结构 (实测 z 虽高但正文不可用); 水印注入由水印面板的独立
+    # 生成入口 (/watermark/generate-llm) 承担, 与写作链路解耦。
     try:
         from services.llm_client import llm_client
-        from services.watermark_engine import load_document_engine
 
         if llm_client.is_available():
-            # 步骤 12: 按目标文档的独立密钥/参数构建引擎 (每文档水印互不可伪造)
-            wm = await load_document_engine(state.get("doc_id"))
             if refs:
-                # 结构化契约: 输出为「标题 + 参考文献 + 正文」Markdown,
-                # 预算留足格式开销 (水印路径 max_tokens 提升到 1000)
-                messages = llm_client.writer_messages(task, refs, extra_req)
-                watermarked = await wm.generate_watermarked(
-                    llm_client, messages, max_tokens=1000
-                )
-                if watermarked:
-                    draft = watermarked
-                else:
-                    # 水印链路失败 (如 logprobs 被拒) -> 退回普通 LLM 生成
-                    draft = await llm_client.write_writer_draft(
-                        task, refs, extra_req
-                    )
+                # 结构化契约: 「# 标题 + ## 参考文献 + ## 正文」Markdown
+                draft = await llm_client.write_writer_draft(task, refs, extra_req)
+                if draft:
+                    draft = _normalize_writer_markdown(draft, task)
             else:
                 # 无确认文献: 保持旧契约 (自由研究背景草稿)
-                messages = llm_client.draft_messages(task, research)
-                watermarked = await wm.generate_watermarked(llm_client, messages)
-                if watermarked:
-                    draft = watermarked
-                else:
-                    draft = await llm_client.write_draft(task, research)
+                draft = await llm_client.write_draft(task, research)
     except Exception as e:  # pragma: no cover - LLM 失败不阻断流程
         print(f"[WriterAgent] LLM 草稿生成失败 ({type(e).__name__}: {e}), 降级模板")
 
@@ -469,8 +545,9 @@ async def writer_agent_node(state: State) -> Dict[str, Any]:
         "metadata": {
             **(state.get("metadata") or {}),
             "writer_engine": engine,
-            # 水印溯源标记: llm 路径默认已注入字符级水印 (logprobs 重采样)
-            "writer_watermarked": engine == "llm",
+            # 写作链路不再注入水印 (纯 LLM 生成保证可读性);
+            # 水印注入由水印面板独立生成入口承担, 此处恒为 False
+            "writer_watermarked": False,
         },
         "messages": [
             *state.get("messages", []),
@@ -478,8 +555,8 @@ async def writer_agent_node(state: State) -> Dict[str, Any]:
                 "role": "agent",
                 "agent": AgentType.WRITER.value,
                 "content": draft,
-                # 步骤 10: 前端以此渲染「已加水印」徽章
-                "watermarked": engine == "llm",
+                # 前端「已加水印」徽章: 写作产出未注入水印, 恒为 False
+                "watermarked": False,
             },
         ],
     }

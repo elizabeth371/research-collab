@@ -69,10 +69,22 @@ export function WriterTab({
             {references.map((r) => (
               <li
                 key={r.id}
-                className="text-[10px] text-slate-500 truncate"
-                title={r.title}
+                className="flex items-center gap-1 text-[10px] text-slate-500"
               >
-                · {r.title}
+                <span className="truncate" title={r.title}>
+                  · {r.title}
+                </span>
+                {r.url && (
+                  <a
+                    href={r.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="shrink-0 text-accent underline underline-offset-2"
+                    title="打开原文（如 arXiv）"
+                  >
+                    ↗
+                  </a>
+                )}
               </li>
             ))}
           </ul>

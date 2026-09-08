@@ -59,7 +59,7 @@ class AcademicReviewEngine:
 
     @staticmethod
     def _normalize(text: str) -> str:
-        """把转义方括号 \[ \] 还原为普通 [ ] (幂等, 仅影响引用分析)"""
+        r"""把转义方括号 \[ \] 还原为普通 [ ] (幂等, 仅影响引用分析)"""
         return AcademicReviewEngine.ESCAPED_BRACKET_RE.sub(lambda m: m.group(0)[-1], text)
 
     # 疑似断言词: 句段中出现且段内无引用编号 -> 黄牌 (论据不足)
@@ -233,13 +233,26 @@ class AcademicReviewEngine:
     # ------------------------------------------------------------------
     # 段落级检查 (黄牌: 断言无引用 / 口语化 / 段落过长)
     # ------------------------------------------------------------------
+    @staticmethod
+    def _is_ref_list_block(block: str) -> bool:
+        """是否为参考文献列表块 (多数行以 [n] 编号开头) —— 不参与段落级检查"""
+        lines = [ln.strip() for ln in block.split("\n") if ln.strip()]
+        if not lines:
+            return False
+        ref_lines = sum(1 for ln in lines if re.match(r"^\[\d{1,3}\]", ln))
+        return ref_lines * 2 >= len(lines)
+
     @classmethod
     def _check_paragraphs(cls, issues: List[ReviewIssue], text: str) -> None:
-        """按段落 (空行分隔, 1 起) 检查论据支撑与表达质量"""
+        """按段落 (空行分隔, 1 起) 检查论据支撑与表达质量。
+
+        段落索引与编辑器顶层块 (标题/段落/列表各为一个块) 一一对应,
+        供前端「润色该段」按 para_index 精确定位。
+        """
         paragraphs = [p.strip() for p in re.split(r"\n\s*\n", text) if p.strip()]
         for idx, para in enumerate(paragraphs, start=1):
-            # 标题行 (markdown #) 不参与段落级检查
-            if para.startswith("#"):
+            # 标题行 / 参考文献列表块不参与段落级检查
+            if para.startswith("#") or cls._is_ref_list_block(para):
                 continue
 
             # ---- 断言无引用支撑 ----
@@ -283,9 +296,17 @@ class AcademicReviewEngine:
     def _collect_stats(cls, text: str) -> dict:
         text = cls._normalize(text)
         paragraphs = [p.strip() for p in text.split("\n") if p.strip()]
-        # 正文引用编号: 仅统计"参考文献"章节之前的部分,
-        # 避免文献列表行首的 [n] 被误当作正文引用而掩盖跳号。
-        body = text.split("参考文献", 1)[0].split("References", 1)[0]
+        # 正文引用编号: 只统计正文部分, 避免文献列表行首的 [n] 被误当作
+        # 正文引用而掩盖跳号。正文定位兼容两种版式:
+        #   A) 「## 正文」标题之后 (参考文献在前的契约版式);
+        #   B) 无正文标题时取「参考文献」章节之前 (传统版式)。
+        body_match = re.search(
+            r"^#{1,6}\s*(?:正文|body|main\s*text)\s*$", text, re.M | re.I
+        )
+        if body_match:
+            body = text[body_match.end() :]
+        else:
+            body = text.split("参考文献", 1)[0].split("References", 1)[0]
         citation_nums = [int(m) for m in cls.CITATION_RE.findall(body)]
         return {
             "chars": len(text.replace(" ", "").replace("\n", "")),

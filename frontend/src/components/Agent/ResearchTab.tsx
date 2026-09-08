@@ -77,10 +77,22 @@ export function ResearchTab({
             {references.map((r) => (
               <li
                 key={r.id}
-                className="text-[10px] text-slate-500 truncate"
-                title={r.title}
+                className="flex items-center gap-1 text-[10px] text-slate-500"
               >
-                · {r.title}
+                <span className="truncate" title={r.title}>
+                  · {r.title}
+                </span>
+                {r.url && (
+                  <a
+                    href={r.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="shrink-0 text-accent underline underline-offset-2"
+                    title="打开原文（如 arXiv）"
+                  >
+                    ↗
+                  </a>
+                )}
               </li>
             ))}
           </ul>
@@ -175,6 +187,18 @@ export function ResearchTab({
                           <span className="block text-[10px] text-slate-400 mt-0.5">
                             {(item.authors ?? []).slice(0, 3).join('、') || '佚名'}
                             {item.source ? ` · ${item.source}` : ''}
+                            {item.url && (
+                              <a
+                                href={item.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                onClick={(e) => e.stopPropagation()}
+                                className="ml-1 text-accent underline underline-offset-2 hover:text-accent-hover"
+                                title="在新标签页打开原文（如 arXiv），核对后回来勾选"
+                              >
+                                原文 ↗
+                              </a>
+                            )}
                           </span>
                         </span>
                       </label>
