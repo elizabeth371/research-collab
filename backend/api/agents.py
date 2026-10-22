@@ -49,11 +49,13 @@ class WriterInputIn(BaseModel):
       user_topic              用户最初输入的研究主题
       confirmed_literature    用户勾选确认的文献 (完整元数据)
       additional_requirements 用户额外要求 (字数/格式等, 可选)
+      watermark               是否生成「带水印版本」 (流畅水印注入, 可选)
     """
 
     user_topic: str = ""
     confirmed_literature: List[LiteratureRefIn] = []
     additional_requirements: str = ""
+    watermark: bool = False
 
 
 class AgentInvokeRequest(BaseModel):
@@ -218,6 +220,7 @@ async def invoke_agent(
                     for r in payload.writer_input.confirmed_literature
                 ],
                 "additional_requirements": payload.writer_input.additional_requirements,
+                "watermark": payload.writer_input.watermark,
             }
             if payload.writer_input
             else None
@@ -346,13 +349,32 @@ async def review_document(
     doc = await _ensure_doc_exists(db, payload.doc_id)
     text = (payload.text or "").strip() or (doc.content or "")
     result = AcademicReviewEngine.review_document(text)
+
+    # 规则 + LLM 语义审稿合并 (无 Key / 调用失败时自动只用规则结果)
+    semantic_engine = "rule"
+    from services.llm_client import llm_client as _llm
+
+    if _llm.is_available():
+        semantic = await _llm.semantic_review(text)
+        if semantic:
+            semantic_engine = "llm"
+            result["issues"].extend(semantic)
+            # 语义意见仅 warning/info, 不改变红牌判定; 重新计数保持一致
+            result["red_cards"] = sum(
+                1 for i in result["issues"] if i["level"] == "error"
+            )
+            result["yellow_cards"] = sum(
+                1 for i in result["issues"] if i["level"] == "warning"
+            )
+            result["passed"] = result["red_cards"] == 0
+
     return {
         "doc_id": str(payload.doc_id),
         "passed": result["passed"],
         "issues": result["issues"],
         "red_cards": result["red_cards"],
         "yellow_cards": result["yellow_cards"],
-        "stats": result["stats"],
+        "stats": {**result["stats"], "semantic_engine": semantic_engine},
     }
 
 

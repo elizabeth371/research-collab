@@ -103,6 +103,10 @@ export const AgentPanel = memo(function AgentPanel({ docId, username, ydoc }: Ag
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [references, setReferences] = useState<SearchPaper[]>([]);
   const [writingText, setWritingText] = useState('');
+  /** 当前正文是否为「带水印版本」(显示水印徽章) */
+  const [writingWatermarked, setWritingWatermarked] = useState(false);
+  /** 带水印版本生成中 */
+  const [wmBusy, setWmBusy] = useState(false);
   // ---- Writer 结构化输出展示 (预览/编辑双模式) ----
   const [extraReq, setExtraReq] = useState('');
   const [writingEditMode, setWritingEditMode] = useState(false);
@@ -146,6 +150,8 @@ export const AgentPanel = memo(function AgentPanel({ docId, username, ydoc }: Ag
     setReferences([]);
     setExtraReq('');
     setWritingText('');
+    setWritingWatermarked(false);
+    setWmBusy(false);
     setWritingEditMode(false);
     setDocWritten(false);
     setWrittenSnapshot('');
@@ -209,6 +215,8 @@ export const AgentPanel = memo(function AgentPanel({ docId, username, ydoc }: Ag
     setReferences([]);
     setExtraReq('');
     setWritingText('');
+    setWritingWatermarked(false);
+    setWmBusy(false);
     setWritingEditMode(false);
     setDocWritten(false);
     setWrittenSnapshot('');
@@ -395,6 +403,7 @@ export const AgentPanel = memo(function AgentPanel({ docId, username, ydoc }: Ag
       const writerMsg = writerMsgs[writerMsgs.length - 1];
       const text = writerMsg?.content ?? '';
       setWritingText(text);
+      setWritingWatermarked(false);
       setWritingEditMode(false);
       setDocWritten(false);
       setStatuses({
@@ -412,6 +421,98 @@ export const AgentPanel = memo(function AgentPanel({ docId, username, ydoc }: Ag
         supervisor: AgentStatusEnum.IDLE,
       });
       go('writing_failed'); // 回到 SEARCH_DONE 可重新确认重试
+    }
+  };
+
+  /**
+   * WRITE_DONE: 生成「带水印版本」。
+   * 与流畅版使用同一份确认文献与主题, 额外提交 watermark=true;
+   * 后端走流畅水印注入 (硬护栏 + 自适应强度, 正文加长以保证 z 可检出)。
+   * 不改变流程状态机 (仍停留在 WRITE_DONE, 由用户选择写入/提交)。
+   */
+  const handleGenerateWatermarked = async () => {
+    if (stage !== 'write_done' || busy || wmBusy) return;
+    if (references.length === 0) {
+      setError('缺少确认文献，请先在调研助手完成文献确认');
+      return;
+    }
+    const requestDocId = docId;
+    const writeTopic = topic.trim() || 'AI 水印与版权溯源';
+    setError(null);
+    setWmBusy(true);
+    appendThread('writer', [
+      {
+        id: `wm-req-${Date.now()}`,
+        role: 'user',
+        content: '生成带水印版本（可检出 AIGC 水印，正文加长）',
+        createdAt: new Date().toISOString(),
+      },
+    ]);
+    try {
+      const instruction =
+        `请基于用户确认的 ${references.length} 篇文献，围绕主题「${writeTopic}」` +
+        '撰写带 AIGC 水印的中文学术文献综述（Markdown：# 标题 / ## 参考文献 / ## 正文）。';
+      const { session_id: sessionId } = await triggerAgent(
+        AgentType.WRITER,
+        requestDocId,
+        instruction,
+        undefined,
+        references,
+        {
+          user_topic: writeTopic,
+          confirmed_literature: references,
+          additional_requirements: extraReq,
+          watermark: true,
+        }
+      );
+
+      // 带水印生成需要更长的正文与多档重采样, 超时放宽到 240s
+      const POLL_INTERVAL_MS = 400;
+      const POLL_TIMEOUT_MS = 240_000;
+      const deadline = Date.now() + POLL_TIMEOUT_MS;
+      let finalStatus = '';
+      while (Date.now() < deadline) {
+        if (docIdRef.current !== requestDocId) return;
+        const state = await getAgentState(sessionId);
+        if (state.status === 'completed' || state.status === 'failed') {
+          finalStatus = state.status;
+          break;
+        }
+        await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
+      }
+      if (!finalStatus) throw new Error('带水印生成超时');
+      if (finalStatus === 'failed') {
+        throw new Error('带水印生成失败，请查看后端日志');
+      }
+
+      const { messages: msgs } = await getAgentMessages(sessionId);
+      if (docIdRef.current !== requestDocId) return;
+      const writerMsgs = msgs.filter((m) => m.agentType === AgentType.WRITER);
+      const writerMsg = writerMsgs[writerMsgs.length - 1];
+      const text = writerMsg?.content ?? '';
+      if (!text) throw new Error('带水印生成未返回正文');
+      appendThread('writer', [
+        {
+          id: writerMsg!.id,
+          role: 'agent' as const,
+          agentType: AgentType.WRITER,
+          content: text,
+          createdAt: writerMsg!.createdAt ?? new Date().toISOString(),
+          watermarked: true,
+        },
+      ]);
+      setWritingText(text);
+      setWritingWatermarked(true);
+      setWritingEditMode(false);
+      // 内容已变化: 需重新写入文档
+      setDocWritten(false);
+      setWrittenSnapshot('');
+      setWriteMsg('🔵 带水印版本已生成，可预览/编辑后写入文档');
+    } catch (e) {
+      if (docIdRef.current !== requestDocId) return;
+      setError(e instanceof Error ? e.message : '带水印生成失败');
+    } finally {
+      setWmBusy(false);
     }
   };
 
@@ -805,6 +906,9 @@ export const AgentPanel = memo(function AgentPanel({ docId, username, ydoc }: Ag
           references={references}
           topic={topic}
           writingText={writingText}
+          watermarked={writingWatermarked}
+          wmBusy={wmBusy}
+          onGenerateWatermarked={() => void handleGenerateWatermarked()}
           onWritingTextChange={setWritingText}
           writingEditMode={writingEditMode}
           onWritingEditModeChange={setWritingEditMode}

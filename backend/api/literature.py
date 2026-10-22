@@ -177,6 +177,53 @@ def _map_local_items(rows: List[Literature]) -> List[dict]:
     return data
 
 
+async def _store_online_items(db: AsyncSession, items: List[dict]) -> None:
+    """把在线检索结果写入本地文献库 (URL 去重, 幂等, best-effort)。
+
+    目的: 断网可查、检索结果可追溯。写入失败不影响本次检索响应
+    (rollback 后静默忽略, 由日志外的调用方无感)。
+    """
+    if not items:
+        return
+    try:
+        urls = [
+            str(it.get("url") or "").strip()
+            for it in items
+            if str(it.get("url") or "").strip()
+        ]
+        existing: set[str] = set()
+        if urls:
+            rows = await db.execute(
+                select(Literature.url).where(Literature.url.in_(urls))
+            )
+            existing = {r[0] for r in rows.all() if r[0]}
+        added = 0
+        for it in items:
+            url = str(it.get("url") or "").strip()
+            title = str(it.get("title") or "").strip()
+            if not url or not title or url in existing:
+                continue
+            published = str(it.get("published_date") or "").strip()
+            year = int(published[:4]) if published[:4].isdigit() else 0
+            db.add(
+                Literature(
+                    title=title,
+                    authors="、".join(it.get("authors") or []),
+                    year=year,
+                    source=str(it.get("source") or "arXiv").strip(),
+                    abstract=str(it.get("abstract") or "").strip(),
+                    keywords="",
+                    url=url,
+                )
+            )
+            existing.add(url)
+            added += 1
+        if added:
+            await db.commit()
+    except Exception:
+        await db.rollback()
+
+
 async def _search_local(
     db: AsyncSession, keyword: str, limit: int
 ) -> List[Literature]:
@@ -241,8 +288,9 @@ async def search_literature(
         if en_query:
             online = await search_arxiv_standard(en_query, max_results=limit)
 
-    # 联网成功且非空 -> 直接返回
+    # 联网成功且非空 -> 结果自动入库 (断网可查) 后直接返回
     if online.get("status") == "success" and online.get("data"):
+        await _store_online_items(db, online["data"])
         return online
 
     # 联网成功但空结果 -> 本地补充, 仍无则规范空态

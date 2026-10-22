@@ -415,6 +415,7 @@ async def writer_agent_node(state: State) -> Dict[str, Any]:
     wi = state.get("writer_input") or {}
     task = (wi.get("user_topic") or state.get("writing_task") or "").strip()
     extra_req = (wi.get("additional_requirements") or "").strip()
+    want_watermark = bool(wi.get("watermark"))
     refs = wi.get("confirmed_literature") or state.get("literature_context") or []
     if refs:
         research = _format_references(refs)
@@ -422,6 +423,7 @@ async def writer_agent_node(state: State) -> Dict[str, Any]:
         research = state.get("research_output", "")
     engine = "rule"
     draft: Optional[str] = None
+    watermarked = False
 
     # ---- 0. 审稿修订模式: supervisor 红牌 -> 按规则重写既有草稿 ----
     review = state.get("review_result") or {}
@@ -485,10 +487,34 @@ async def writer_agent_node(state: State) -> Dict[str, Any]:
 
         if llm_client.is_available():
             if refs:
-                # 结构化契约: 「# 标题 + ## 参考文献 + ## 正文」Markdown
-                draft = await llm_client.write_writer_draft(task, refs, extra_req)
-                if draft:
-                    draft = _normalize_writer_markdown(draft, task)
+                if want_watermark:
+                    # 「带水印版本」: 流畅水印注入 (硬护栏 + 自适应强度)。
+                    # z 统计量随正文长度增长, 因此要求 1400+ 字以保证可检出。
+                    from services.watermark_engine import load_document_engine
+
+                    wm = await load_document_engine(state.get("doc_id"))
+                    wm_req = (
+                        extra_req + "\n正文不少于 1400 字，分 4-6 段。"
+                    ).strip()
+                    messages = llm_client.writer_messages(task, refs, wm_req)
+                    draft = await wm.generate_watermarked_fluent(
+                        llm_client, messages, max_tokens=3000
+                    )
+                    if draft:
+                        draft = _normalize_writer_markdown(draft, task)
+                        watermarked = True
+                    else:
+                        # 水印链路失败 -> 回退纯 LLM (保证可用)
+                        draft = await llm_client.write_writer_draft(
+                            task, refs, extra_req
+                        )
+                        if draft:
+                            draft = _normalize_writer_markdown(draft, task)
+                else:
+                    # 结构化契约: 「# 标题 + ## 参考文献 + ## 正文」Markdown
+                    draft = await llm_client.write_writer_draft(task, refs, extra_req)
+                    if draft:
+                        draft = _normalize_writer_markdown(draft, task)
             else:
                 # 无确认文献: 保持旧契约 (自由研究背景草稿)
                 draft = await llm_client.write_draft(task, research)
@@ -545,9 +571,8 @@ async def writer_agent_node(state: State) -> Dict[str, Any]:
         "metadata": {
             **(state.get("metadata") or {}),
             "writer_engine": engine,
-            # 写作链路不再注入水印 (纯 LLM 生成保证可读性);
-            # 水印注入由水印面板独立生成入口承担, 此处恒为 False
-            "writer_watermarked": False,
+            # 仅「带水印版本」为 True; 默认流畅版不注入水印
+            "writer_watermarked": watermarked,
         },
         "messages": [
             *state.get("messages", []),
@@ -555,8 +580,8 @@ async def writer_agent_node(state: State) -> Dict[str, Any]:
                 "role": "agent",
                 "agent": AgentType.WRITER.value,
                 "content": draft,
-                # 前端「已加水印」徽章: 写作产出未注入水印, 恒为 False
-                "watermarked": False,
+                # 前端「已加水印」徽章: 带水印版本为 True
+                "watermarked": watermarked,
             },
         ],
     }

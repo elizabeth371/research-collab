@@ -297,6 +297,63 @@ class LLMClient:
         )
 
     # ------------------------------------------------------------------
+    # 审核: LLM 语义审稿 (与规则红黄牌互补)
+    # ------------------------------------------------------------------
+    async def semantic_review(self, text: str) -> Optional[List[Dict[str, Any]]]:
+        """
+        LLM 语义审稿: 从论证完整性/逻辑结构/创新性/引用匹配度给出意见。
+
+        与规则引擎 (AcademicReviewEngine) 的分工:
+          - 规则: 篇幅/引用编号/参考文献章节/口语化/段落长度 (确定性);
+          - 语义: 内容层面的学术意见 (需要理解能力)。
+
+        返回 [{level: 'warning'|'info', message: str, para_index: int|None}];
+        无 Key / 调用失败 / 解析失败返回 None (调用方只用规则结果)。
+        等级仅使用 warning/info, 不产生红牌, 避免误伤 passed 判定。
+        """
+        body = (text or "").strip()
+        if len(body) < 80:
+            return None
+        prompt = (
+            "你是一位严格的学术期刊审稿人。请审阅下面的论文正文，只从学术内容层面"
+            "提出问题意见：\n"
+            "1. 论证是否完整：是否存在没有依据的结论性断言；\n"
+            "2. 逻辑结构：段落之间衔接是否清晰、论证链条是否完整；\n"
+            "3. 创新性与贡献：是否明确说明了本文的贡献；\n"
+            "4. 文献匹配：正文论述与所引文献是否吻合。\n"
+            "仅输出 JSON（不要代码围栏、不要解释）：\n"
+            '{"issues":[{"level":"warning|info","message":"中文意见，不超过80字",'
+            '"para_index":1}]}\n'
+            "规则：最多 5 条；没有实质问题时 issues 为空数组；"
+            "para_index 为问题所在段落的序号（1 起），全文级问题用 null。\n"
+            "\n【论文正文】\n" + body[:6000]
+        )
+        raw = await self.chat_json(
+            [
+                {"role": "system", "content": "你是严谨、克制的中文学术审稿人。"},
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.2,
+            max_tokens=1200,
+        )
+        if not raw or not isinstance(raw.get("issues"), list):
+            return None
+        issues: List[Dict[str, Any]] = []
+        for item in raw["issues"][:5]:
+            if not isinstance(item, dict):
+                continue
+            msg = str(item.get("message") or "").strip()
+            if not msg:
+                continue
+            level = str(item.get("level") or "info").lower()
+            if level not in ("warning", "info"):
+                level = "info"
+            para = item.get("para_index")
+            para_index = para if isinstance(para, int) and para > 0 else None
+            issues.append({"level": level, "message": msg, "para_index": para_index})
+        return issues or None
+
+    # ------------------------------------------------------------------
     # 水印专用: 返回每位置 top-N 候选 (token, logprob)
     # ------------------------------------------------------------------
     async def generate_with_logprobs(

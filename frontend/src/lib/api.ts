@@ -167,6 +167,8 @@ export interface WriterInput {
   confirmed_literature: SearchPaper[];
   /** 用户额外要求 (字数/格式等, 可选) */
   additional_requirements?: string;
+  /** 是否生成「带水印版本」(流畅水印注入, 可选) */
+  watermark?: boolean;
 }
 
 /** 文献 -> 后端传输结构 (title/abstract/authors/url/source/published_date) */
@@ -222,6 +224,7 @@ export const triggerAgent = (
                       writerInput.additional_requirements.trim(),
                   }
                 : {}),
+              ...(writerInput.watermark ? { watermark: true } : {}),
             },
           }
         : {}),

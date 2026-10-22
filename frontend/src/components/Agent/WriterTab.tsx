@@ -21,6 +21,11 @@ export interface WriterTabProps {
   references: SearchPaper[];
   topic: string;
   writingText: string;
+  /** 当前正文是否为带水印版本 */
+  watermarked: boolean;
+  /** 带水印版本生成中 */
+  wmBusy: boolean;
+  onGenerateWatermarked: () => void;
   onWritingTextChange: (v: string) => void;
   writingEditMode: boolean;
   onWritingEditModeChange: (v: boolean) => void;
@@ -39,6 +44,9 @@ export function WriterTab({
   references,
   topic,
   writingText,
+  watermarked,
+  wmBusy,
+  onGenerateWatermarked,
   onWritingTextChange,
   writingEditMode,
   onWritingEditModeChange,
@@ -133,6 +141,14 @@ export function WriterTab({
               <span className="text-[11px] font-semibold text-slate-600">
                 ✍️ 生成正文 · {writingText.length} 字
                 {topic ? ` · 主题「${topic}」` : ''}
+                {watermarked && (
+                  <span
+                    title="本版本已注入可检出的字符级水印"
+                    className="ml-1 text-[9px] font-semibold text-blue-600 bg-blue-50 border border-blue-200 rounded-full px-1.5 py-px"
+                  >
+                    🔵 已嵌入水印
+                  </span>
+                )}
               </span>
               <div className="flex items-center gap-1">
                 <button
@@ -179,6 +195,19 @@ export function WriterTab({
               </p>
             )}
             {writeMsg && <p className="text-[10px] text-slate-500">{writeMsg}</p>}
+
+            {/* 双版本: 默认流畅版; 需要检测演示时生成带水印版本 */}
+            <button
+              onClick={onGenerateWatermarked}
+              disabled={busy || wmBusy}
+              className={`w-full text-[11px] font-medium px-2 py-1.5 rounded-lg transition-colors ${theme.btnOutline}`}
+            >
+              {wmBusy
+                ? '🔵 正在生成带水印版本（约 1-2 分钟）…'
+                : watermarked
+                  ? '🔵 重新生成带水印版本'
+                  : '🔵 生成带水印版本（可检出 AIGC 水印）'}
+            </button>
 
             <div className="flex gap-1.5">
               <button

@@ -6,6 +6,7 @@
  * 流程动作仍由容器 (AgentPanel) 的 handler 驱动, 共享全局状态机。
  */
 
+import { useState } from 'react';
 import type { AgentFlowStage } from '../../lib/agentFlow';
 import { AGENT_TAB_MAP, type ChatItem } from './AgentTabs';
 import { TabHandoffCard, TabMessageStream } from './TabShared';
@@ -64,6 +65,8 @@ export function ResearchTab({
 }: ResearchTabProps) {
   const { theme } = AGENT_TAB_MAP.research;
   const confirmed = stageIndex(stage) > stageIndex('search_done');
+  /** 面板内展开的文献 id (点击标题展开摘要, 不跳转网页) */
+  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   return (
     <div className="flex-1 flex flex-col min-h-0">
@@ -165,43 +168,70 @@ export function ResearchTab({
               <ul className="space-y-1.5 max-h-44 overflow-y-auto slim-scroll pr-0.5">
                 {results.map((item) => {
                   const checked = selectedIds.includes(item.id);
+                  const expanded = expandedId === item.id;
                   return (
-                    <li key={item.id}>
-                      <label
-                        className={`flex items-start gap-2 p-2 rounded-md border cursor-pointer transition-colors ${
-                          checked
-                            ? 'border-accent bg-accent/5'
-                            : 'border-slate-200 bg-slate-50/60'
-                        }`}
-                      >
+                    <li
+                      key={item.id}
+                      className={`rounded-md border transition-colors ${
+                        checked
+                          ? 'border-accent bg-accent/5'
+                          : 'border-slate-200 bg-slate-50/60'
+                      }`}
+                    >
+                      <div className="flex items-start gap-2 p-2">
                         <input
                           type="checkbox"
                           checked={checked}
                           onChange={() => onToggleSelect(item.id)}
-                          className="w-3.5 h-3.5 accent-accent mt-0.5"
+                          className="w-3.5 h-3.5 accent-accent mt-0.5 shrink-0"
                         />
-                        <span className="flex-1 min-w-0">
+                        {/* 点击标题展开/收起摘要 (面板内预览, 不跳转) */}
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setExpandedId(expanded ? null : item.id)
+                          }
+                          className="flex-1 min-w-0 text-left"
+                          title={expanded ? '收起摘要' : '点击查看摘要'}
+                        >
                           <span className="block text-[11px] leading-snug text-slate-700 line-clamp-2">
                             {item.title}
                           </span>
                           <span className="block text-[10px] text-slate-400 mt-0.5">
                             {(item.authors ?? []).slice(0, 3).join('、') || '佚名'}
                             {item.source ? ` · ${item.source}` : ''}
-                            {item.url && (
-                              <a
-                                href={item.url}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                onClick={(e) => e.stopPropagation()}
-                                className="ml-1 text-accent underline underline-offset-2 hover:text-accent-hover"
-                                title="在新标签页打开原文（如 arXiv），核对后回来勾选"
-                              >
-                                原文 ↗
-                              </a>
-                            )}
+                            <span className="ml-1 text-accent">
+                              {expanded ? '收起 ▴' : '摘要 ▾'}
+                            </span>
                           </span>
-                        </span>
-                      </label>
+                        </button>
+                        {item.url && (
+                          <a
+                            href={item.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={(e) => e.stopPropagation()}
+                            className="shrink-0 text-[10px] text-accent underline underline-offset-2 hover:text-accent-hover mt-0.5"
+                            title="在新标签页打开原文（如 arXiv）"
+                          >
+                            原文 ↗
+                          </a>
+                        )}
+                      </div>
+                      {expanded && (
+                        <div className="px-2 pb-2 pt-1 border-t border-slate-200/70">
+                          <p className="text-[10px] leading-relaxed text-slate-600 max-h-36 overflow-y-auto slim-scroll">
+                            {item.abstract?.trim() || '（该条目未提供摘要）'}
+                          </p>
+                          <p className="mt-1 text-[9px] text-slate-400">
+                            {(item.authors ?? []).join('、') || '佚名'}
+                            {item.published_date
+                              ? ` · ${item.published_date}`
+                              : ''}
+                            {item.source ? ` · ${item.source}` : ''}
+                          </p>
+                        </div>
+                      )}
                     </li>
                   );
                 })}
