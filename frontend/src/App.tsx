@@ -6,6 +6,7 @@ import { ProvenancePanel } from './components/Provenance/ProvenancePanel';
 import { LiteraturePanel } from './components/Literature/LiteraturePanel';
 import { ChatPanel } from './components/Chat/ChatPanel';
 import { DocSettingsModal } from './components/Settings/DocSettingsModal';
+import { ManuscriptAuditModal } from './components/Audit/ManuscriptAuditModal';
 import {
   fetchBootstrap,
   createDocument,
@@ -53,6 +54,11 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [docPerms, setDocPerms] = useState<DocumentPermissions | null>(null);
   const [editorReloadKey, setEditorReloadKey] = useState(0);
+  // ---- 稿件体检 (上传文档后自动弹出: 润色 -> 水印鉴定) ----
+  const [auditOpen, setAuditOpen] = useState(false);
+  const [auditDocId, setAuditDocId] = useState('');
+  const [auditTitle, setAuditTitle] = useState('');
+  const [auditText, setAuditText] = useState<string | undefined>(undefined);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // ---- 初始化: 拉取演示用户与文档列表 ----
@@ -200,6 +206,11 @@ export default function App() {
         ...prev,
       ]);
       setDocId(doc.id);
+      // 上传成功后进入「稿件体检」: ① 全文润色 -> ② 水印鉴定
+      setAuditDocId(doc.id);
+      setAuditTitle(doc.title);
+      setAuditText(content);
+      setAuditOpen(true);
     } catch (e) {
       console.error('上传文档失败', e);
       alert('上传失败，请检查后端服务');
@@ -322,6 +333,21 @@ export default function App() {
             {exporting ? '导出中...' : exportDenied ? '🔒 已禁止导出' : '导出 Markdown'}
           </button>
           <button
+            onClick={() => {
+              if (!currentDoc) return;
+              setAuditDocId(docId);
+              setAuditTitle(currentDoc.title);
+              // 不传 text: 由后端读取文档当前内容
+              setAuditText(undefined);
+              setAuditOpen(true);
+            }}
+            disabled={!currentDoc}
+            title="对当前文档做全文润色 + AIGC 水印鉴定"
+            className="text-xs px-3 py-1.5 rounded-md border border-slate-200 text-slate-600 hover:bg-slate-50 hover:border-slate-300 disabled:opacity-40 transition-colors whitespace-nowrap"
+          >
+            🔍 稿件体检
+          </button>
+          <button
             onClick={() => setSettingsOpen(true)}
             disabled={!currentDoc}
             title="文档设置: 版本回溯 / 权限管理"
@@ -410,6 +436,17 @@ export default function App() {
         onClose={() => setSettingsOpen(false)}
         onRestored={handleRestored}
         onPermissionsChanged={(p) => setDocPerms(p)}
+      />
+
+      {/* 稿件体检: 上传后自动弹出 / 顶栏按钮手动打开 (润色 -> 水印鉴定) */}
+      <ManuscriptAuditModal
+        docId={auditDocId}
+        title={auditTitle}
+        initialText={auditText}
+        operatorId={userId}
+        open={auditOpen && !!auditDocId}
+        onClose={() => setAuditOpen(false)}
+        onApplied={handleRestored}
       />
     </div>
   );

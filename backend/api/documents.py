@@ -6,6 +6,7 @@
 """
 
 import base64
+import re
 import uuid
 from datetime import datetime
 from typing import List, Optional
@@ -794,3 +795,76 @@ async def _export_denied(db: AsyncSession, doc_id: uuid.UUID) -> bool:
         )
     ).scalar_one_or_none()
     return config is not None and config.export_policy == "deny"
+
+
+# ---------------------------------------------------------------------------
+# 稿件体检 (上传/历史稿件): 全文逐段润色 -> 水印鉴定
+# ---------------------------------------------------------------------------
+class AuditPolishRequest(BaseModel):
+    """全文润色请求体 (text 缺省时取文档当前内容)"""
+
+    text: Optional[str] = Field(default=None, max_length=50000)
+
+
+class AuditPolishOut(BaseModel):
+    """全文润色结果 (不写库, 由前端确认后 PATCH 应用)"""
+
+    doc_id: uuid.UUID
+    polished: str
+    stats: dict
+
+
+@router.post("/{doc_id}/audit/polish", response_model=AuditPolishOut)
+async def audit_polish_document(
+    doc_id: uuid.UUID,
+    payload: Optional[AuditPolishRequest] = None,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """
+    稿件体检第 1 步: 全文逐段学术化润色。
+
+    优先 LLM 全文润色 (保留 Markdown 结构 / 段落数 / [n] 文献编号);
+    无 Key 或调用失败时回退规则引擎逐段润色。
+    本接口不写库, 由前端确认后调用 PATCH /documents/{id} 应用润色结果。
+    """
+    doc = await db.get(Document, doc_id)
+    if doc is None:
+        raise HTTPException(status_code=404, detail="Document not found")
+    text = ((payload.text if payload else None) or doc.content or "").strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="文档内容为空, 无法润色")
+
+    from services.llm_client import llm_client
+
+    polished: Optional[str] = None
+    engine = "rule"
+    if llm_client.is_available():
+        polished = await llm_client.polish_document(text)
+        if polished:
+            engine = "llm"
+
+    paragraphs = [p for p in re.split(r"\n\s*\n", text) if p.strip()]
+    if not polished:
+        # 规则降级: 按段落润色, 标题行与参考文献条目原样保留
+        from services.polish_engine import PolishEngine
+
+        out: List[str] = []
+        for para in paragraphs:
+            s = para.strip()
+            if s.startswith("#") or re.match(r"^\[\d{1,3}\]", s):
+                out.append(s)
+                continue
+            result = PolishEngine.polish_text(s)
+            out.append(result.get("polished") or s)
+        polished = "\n\n".join(out)
+
+    return {
+        "doc_id": doc_id,
+        "polished": polished,
+        "stats": {
+            "chars_before": len(text),
+            "chars_after": len(polished),
+            "engine": engine,
+            "paragraphs": len(paragraphs),
+        },
+    }

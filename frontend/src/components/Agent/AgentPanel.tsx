@@ -400,7 +400,8 @@ export const AgentPanel = memo(function AgentPanel({ docId, username, ydoc }: Ag
 
       // Writer 单节点在后台任务中执行 (invoke 返回 202): 轮询直至完成
       const POLL_INTERVAL_MS = 400;
-      const POLL_TIMEOUT_MS = 120_000;
+      // 长稿 (约 2000 字) 生成耗时更长, 超时放宽到 4 分钟
+      const POLL_TIMEOUT_MS = 240_000;
       const deadline = Date.now() + POLL_TIMEOUT_MS;
       let finalStatus = '';
       while (Date.now() < deadline) {
@@ -500,9 +501,9 @@ export const AgentPanel = memo(function AgentPanel({ docId, username, ydoc }: Ag
         }
       );
 
-      // 带水印生成需要更长的正文与多档重采样, 超时放宽到 240s
+      // 带水印生成需要更长的正文与多档重采样, 超时放宽到 300s
       const POLL_INTERVAL_MS = 400;
-      const POLL_TIMEOUT_MS = 240_000;
+      const POLL_TIMEOUT_MS = 300_000;
       const deadline = Date.now() + POLL_TIMEOUT_MS;
       let finalStatus = '';
       while (Date.now() < deadline) {

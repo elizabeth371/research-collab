@@ -253,7 +253,7 @@ class LLMClient:
         输入契约: {user_topic, confirmed_literature, additional_requirements}。
         输出契约: Markdown 纯文本正文 —— 以 `# 标题` 开头, 随后
         `## 参考文献` (按 [1]、[2]… 逐条列出给定文献), 再 `## 正文`
-        (默认 300-600 字; min_body_chars 指定时改为"不少于 N 字",
+        (默认约 2000 字; min_body_chars 指定时改为"不少于 N 字",
         用于带水印版本 —— 水印统计量 z ∝ √N, 需要更长的正文)。
         """
         topic = (user_topic or "").strip() or "AI 水印与版权溯源研究进展"
@@ -261,12 +261,13 @@ class LLMClient:
         extra = (additional_requirements or "").strip()
         if min_body_chars:
             body_len_rule = (
-                f"{int(min_body_chars)} 字以上, 分 4-6 段, 逻辑连贯、观点明确, "
+                f"{int(min_body_chars)} 字以上, 分 5-7 段, 逻辑连贯、观点明确, "
                 "引用观点时使用 [n] 标注 (n 与参考文献编号对应);\n"
             )
         else:
             body_len_rule = (
-                "300-600 字, 逻辑连贯、观点明确, "
+                "约 2000 字 (不少于 1500 字), 分 5-7 段, 每段聚焦一个论点, "
+                "逻辑连贯、观点明确, "
                 "引用观点时使用 [n] 标注 (n 与参考文献编号对应);\n"
             )
         prompt = (
@@ -297,15 +298,17 @@ class LLMClient:
         user_topic: str,
         references: List[Dict[str, Any]],
         additional_requirements: str = "",
+        *,
+        max_tokens: int = 4000,
     ) -> Optional[str]:
         """
-        Writer 结构化生成: 按输出契约产出 Markdown 正文。
+        Writer 结构化生成: 按输出契约产出 Markdown 正文 (默认约 2000 字)。
         无 Key / 调用失败返回 None (调用方回退到规则模板)。
         """
         return await self.chat(
             self.writer_messages(user_topic, references, additional_requirements),
             temperature=0.7,
-            max_tokens=1500,
+            max_tokens=max_tokens,
         )
 
     # ------------------------------------------------------------------
@@ -421,6 +424,39 @@ class LLMClient:
         except Exception as e:  # 网络/超时/鉴权失败 -> 返回 None, 不阻断主流程
             logger.warning("[LLM] logprobs 调用失败 (%s: %s)", type(e).__name__, e)
             return None
+
+    # ------------------------------------------------------------------
+    # 全文逐段润色 (稿件体检: 上传/历史稿件统一学术化)
+    # ------------------------------------------------------------------
+    async def polish_document(self, text: str) -> Optional[str]:
+        """
+        对论文全文做逐段学术化润色, 保留 Markdown 结构与文献编号。
+
+        约束 (写入 prompt): 不改标题层级 / 不增删段落 / 不动 [n] 编号 /
+        不改观点事实; 只输出润色后的全文。
+        无 Key / 调用失败返回 None (调用方回退到规则引擎逐段润色)。
+        """
+        body = (text or "").strip()
+        if not body:
+            return None
+        prompt = (
+            "你是一位资深学术编辑。请对下面的论文全文做学术化润色，要求：\n"
+            "1. 保持 Markdown 结构与标题层级完全不变；\n"
+            "2. 逐段润色：口语化表达改为学术措辞，清理冗余与重复，规范标点；\n"
+            "3. 不得增删段落，不得改动文献编号 [n] 与参考文献条目；\n"
+            "4. 不改变原文观点与事实；\n"
+            "5. 只输出润色后的全文，不要任何解释或代码围栏。\n"
+            "\n【论文全文】\n" + body[:20000]
+        )
+        max_tokens = min(max(int(len(body) * 1.4), 2000), 8000)
+        return await self.chat(
+            [
+                {"role": "system", "content": "你是一位严谨的中文学术编辑。"},
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.3,
+            max_tokens=max_tokens,
+        )
 
 
 # 模块级单例 (与 orchestrator / api 共享)

@@ -495,10 +495,10 @@ async def writer_agent_node(state: State) -> Dict[str, Any]:
 
                     wm = await load_document_engine(state.get("doc_id"))
                     messages = llm_client.writer_messages(
-                        task, refs, extra_req, min_body_chars=1400
+                        task, refs, extra_req, min_body_chars=2000
                     )
                     draft = await wm.generate_watermarked_fluent(
-                        llm_client, messages, max_tokens=3000
+                        llm_client, messages, max_tokens=4500
                     )
                     if draft:
                         # 以最终文本重新检测: 结构规整/瑕疵修复后仍需达标

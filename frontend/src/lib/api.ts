@@ -141,6 +141,48 @@ export const updateDocument = (
     }),
   });
 
+/** 稿件体检 · 全文逐段润色结果 (不写库, 确认后由 updateDocument 应用) */
+export interface AuditPolishResult {
+  docId: string;
+  polished: string;
+  stats: {
+    charsBefore: number;
+    charsAfter: number;
+    paragraphs: number;
+    engine: 'llm' | 'rule';
+  };
+}
+
+/** 全文润色: text 缺省时后端取文档当前内容 */
+export const polishDocument = async (
+  docId: string,
+  text?: string
+): Promise<AuditPolishResult> => {
+  const raw = await request<{
+    doc_id: string;
+    polished: string;
+    stats: {
+      chars_before: number;
+      chars_after: number;
+      paragraphs: number;
+      engine: 'llm' | 'rule';
+    };
+  }>(`/documents/${docId}/audit/polish`, {
+    method: 'POST',
+    ...(text && text.trim() ? { body: JSON.stringify({ text }) } : {}),
+  });
+  return {
+    docId: raw.doc_id,
+    polished: raw.polished,
+    stats: {
+      charsBefore: raw.stats.chars_before,
+      charsAfter: raw.stats.chars_after,
+      paragraphs: raw.stats.paragraphs,
+      engine: raw.stats.engine,
+    },
+  };
+};
+
 // ---------------------------------------------------------------------------
 // Agent
 // ---------------------------------------------------------------------------
