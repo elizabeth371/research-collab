@@ -20,6 +20,8 @@ export interface ReviewTabProps {
   thread: ChatItem[];
   stage: AgentFlowStage;
   busy: boolean;
+  /** 带水印版本生成中 (stage 仍为 write_done, 此时禁止一切推进流程的操作) */
+  wmBusy: boolean;
   /** 待审核稿件标题 (正文一级标题, 跨 Tab 交接展示) */
   manuscriptTitle: string;
   review: ReviewResult | null;
@@ -45,6 +47,7 @@ export function ReviewTab({
   thread,
   stage,
   busy,
+  wmBusy,
   manuscriptTitle,
   review,
   reviewMsg,
@@ -229,7 +232,7 @@ export function ReviewTab({
         {stage === 'write_done' && (
           <button
             onClick={onSubmitReview}
-            disabled={busy}
+            disabled={busy || wmBusy}
             className={`w-full text-[11px] font-medium px-3 py-2 rounded-lg transition-colors ${theme.btn}`}
           >
             提交审核（审核 Agent）

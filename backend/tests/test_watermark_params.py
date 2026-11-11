@@ -19,7 +19,7 @@ from httpx import ASGITransport, AsyncClient
 
 from config import settings
 from main import app
-from services.watermark_engine import WatermarkEngine, load_document_engine
+from services.watermark_engine import WatermarkEngine, key_fingerprint, load_document_engine
 
 DEMO_DOC_ID = "00000000-0000-4000-8000-0000000000a1"
 TEST_SAMPLE_ID = "ddaf2f58-a9a2-45ca-83ce-3d7718d4a0c7"
@@ -107,9 +107,11 @@ async def test_new_docs_get_independent_random_keys(client):
     id2 = await _create_doc(client)
     p1 = (await client.get(f"/api/watermark/documents/{id1}/params")).json()
     p2 = (await client.get(f"/api/watermark/documents/{id2}/params")).json()
-    assert p1["secret_key_hex"] != settings.WATERMARK_SECRET_KEY.hex()
-    assert p1["secret_key_hex"] != p2["secret_key_hex"]
-    assert len(p1["secret_key_hex"]) == 64  # 32 字节密钥
+    # 密钥原文严禁回传, 只能通过指纹对外核对
+    assert "secret_key_hex" not in p1
+    assert p1["key_fingerprint"] != key_fingerprint(settings.WATERMARK_SECRET_KEY)
+    assert p1["key_fingerprint"] != p2["key_fingerprint"]
+    assert len(p1["key_fingerprint"]) == 32  # 128 bit 指纹
 
 
 # ---------------------------------------------------------------------------
@@ -123,8 +125,8 @@ async def test_params_get_defaults_and_404(client):
     data = resp.json()
     assert data["gamma"] == pytest.approx(0.5)
     assert data["delta"] == pytest.approx(4.0)
-    assert len(data["secret_key_hex"]) == 64
     assert len(data["key_fingerprint"]) == 32  # 128 bit 指纹
+    assert "secret_key_hex" not in data  # 密钥原文严禁回传
     assert (await client.get(f"/api/watermark/documents/{uuid.uuid4()}/params")).status_code == 404
 
 
@@ -159,8 +161,8 @@ async def test_params_regenerate_key(client):
     )
     assert resp.status_code == 200
     after = resp.json()
-    assert after["secret_key_hex"] != before["secret_key_hex"]
     assert after["key_fingerprint"] != before["key_fingerprint"]
+    assert "secret_key_hex" not in after  # 密钥原文严禁回传
     # 参数未变 (只重建密钥)
     assert after["gamma"] == before["gamma"] and after["delta"] == before["delta"]
 

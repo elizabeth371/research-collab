@@ -588,13 +588,19 @@ export const deleteComment = (docId: string, commentId: string) =>
     method: 'DELETE',
   });
 
-/** 文档级水印检测: 检测全文并持久化 WatermarkRecord + 溯源链日志 */
+/** 文档级水印检测: 检测全文并持久化 WatermarkRecord + 溯源链日志
+ *  text 非空时以它作为检测对象 (避免编辑器防抖落库延迟导致的旧内容误判)
+ */
 export const detectDocumentWatermark = async (
-  docId: string
+  docId: string,
+  text?: string
 ): Promise<WatermarkDetectionResult> => {
   const raw = await request<BackendDetectResponse>(
     `/watermark/documents/${docId}/detect`,
-    { method: 'POST' }
+    {
+      method: 'POST',
+      ...(text && text.trim() ? { body: JSON.stringify({ text }) } : {}),
+    }
   );
   return mapDetectResponse(raw, docId);
 };

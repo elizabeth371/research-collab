@@ -131,12 +131,23 @@ export const AgentPanel = memo(function AgentPanel({ docId, username, ydoc }: Ag
   const researchScrollRef = useRef<HTMLDivElement>(null);
   const writerScrollRef = useRef<HTMLDivElement>(null);
   const reviewScrollRef = useRef<HTMLDivElement>(null);
+  // 状态机同步镜像: 异步回调中读取最新 stage, 避免 render 闭包陈旧值
+  const stageRef = useRef<AgentFlowStage>('idle');
+  // 请求世代号: 文档切换 / 开始新一轮时自增, 过期的异步回调据此放弃推进
+  const epochRef = useRef(0);
 
   // 步骤正在调用 Agent / 联网: 禁用全部按钮并渲染进度动画
   const busy = FLOW_BUSY_STAGES.has(stage);
 
+  // stage 同步镜像 (异步回调使用)
+  useEffect(() => {
+    stageRef.current = stage;
+  }, [stage]);
+
   /** 切换文档: 恢复该文档各 Tab 的历史线程, 并将流程状态机重置回 IDLE */
   useEffect(() => {
+    epochRef.current += 1; // 使旧文档的在途请求失效
+    stageRef.current = 'idle';
     setThreads({
       research: threadCache.get(threadKey(docId, 'research')) ?? [],
       writer: threadCache.get(threadKey(docId, 'writer')) ?? [],
@@ -196,19 +207,40 @@ export const AgentPanel = memo(function AgentPanel({ docId, username, ydoc }: Ag
     if (el) el.scrollTo({ top: el.scrollHeight });
   }, [threads, busy, activeTab]);
 
-  /** 状态机流转入口: 校验 (stage, action) 合法后推进; 非法跳步直接拦截 */
-  const go = (action: AgentFlowAction): boolean => {
+  /** 状态机流转入口: 校验 (stage, action) 合法后推进; 非法跳步直接拦截。
+   *  在 setState updater 之外同步计算 next —— updater 里的异常会在 render
+   *  阶段重抛, try/catch 抓不到, 会导致白屏; epoch 不匹配视为过期回调直接放弃。
+   */
+  const go = (action: AgentFlowAction, epoch?: number): boolean => {
+    if (epoch !== undefined && epoch !== epochRef.current) return false;
+    let next: AgentFlowStage;
     try {
-      setStage((s) => flowTransition(s, action));
-      return true;
+      next = flowTransition(stageRef.current, action);
     } catch (e) {
       setError(e instanceof Error ? e.message : '流程状态异常');
       return false;
     }
+    stageRef.current = next;
+    setStage(next);
+    return true;
+  };
+
+  /** 异步回调专用: 先确认仍在原文档且未被新一轮重置, 再推进状态 */
+  const goIfCurrent = (
+    action: AgentFlowAction,
+    requestDocId: string,
+    epoch: number
+  ): boolean => {
+    if (docIdRef.current !== requestDocId || epoch !== epochRef.current) {
+      return false;
+    }
+    return go(action);
   };
 
   /** 重置本轮流程 (任意状态 -> IDLE, 可开始新一轮; 不清空三个 Tab 的历史) */
   const handleResetFlow = () => {
+    epochRef.current += 1; // 旧流程的在途请求失效
+    stageRef.current = 'idle';
     setStage('idle');
     setResults([]);
     setSelectedIds([]);
@@ -234,6 +266,7 @@ export const AgentPanel = memo(function AgentPanel({ docId, username, ydoc }: Ag
     const keyword = topic.trim();
     if (!keyword || busy || stage !== 'idle') return;
     const requestDocId = docId;
+    const epoch = epochRef.current;
     setError(null);
     setResults([]);
     setSelectedIds([]);
@@ -277,7 +310,7 @@ export const AgentPanel = memo(function AgentPanel({ docId, username, ydoc }: Ag
           writer: AgentStatusEnum.IDLE,
           supervisor: AgentStatusEnum.IDLE,
         });
-        go('search_succeeded');
+        goIfCurrent('search_succeeded', requestDocId, epoch);
       } else {
         setError(res.message || '检索失败');
         setStatuses({
@@ -285,7 +318,7 @@ export const AgentPanel = memo(function AgentPanel({ docId, username, ydoc }: Ag
           writer: AgentStatusEnum.IDLE,
           supervisor: AgentStatusEnum.IDLE,
         });
-        go('search_failed');
+        goIfCurrent('search_failed', requestDocId, epoch);
       }
     } catch (e) {
       if (docIdRef.current !== requestDocId) return;
@@ -295,7 +328,7 @@ export const AgentPanel = memo(function AgentPanel({ docId, username, ydoc }: Ag
         writer: AgentStatusEnum.IDLE,
         supervisor: AgentStatusEnum.IDLE,
       });
-      go('search_failed');
+      goIfCurrent('search_failed', requestDocId, epoch);
     }
   };
 
@@ -313,6 +346,7 @@ export const AgentPanel = memo(function AgentPanel({ docId, username, ydoc }: Ag
     const refs = results.filter((r) => selectedIds.includes(r.id));
     if (refs.length === 0) return;
     const requestDocId = docId;
+    const epoch = epochRef.current;
     const writeTopic = topic.trim() || 'AI 水印与版权溯源';
     setError(null);
     setReferences(refs);
@@ -411,7 +445,7 @@ export const AgentPanel = memo(function AgentPanel({ docId, username, ydoc }: Ag
         writer: AgentStatusEnum.COMPLETED,
         supervisor: AgentStatusEnum.IDLE,
       });
-      go('writing_succeeded');
+      goIfCurrent('writing_succeeded', requestDocId, epoch);
     } catch (e) {
       if (docIdRef.current !== requestDocId) return;
       setError(e instanceof Error ? e.message : 'Writer 撰写失败');
@@ -420,7 +454,7 @@ export const AgentPanel = memo(function AgentPanel({ docId, username, ydoc }: Ag
         writer: AgentStatusEnum.ERROR,
         supervisor: AgentStatusEnum.IDLE,
       });
-      go('writing_failed'); // 回到 SEARCH_DONE 可重新确认重试
+      goIfCurrent('writing_failed', requestDocId, epoch); // 回到 SEARCH_DONE 可重新确认重试
     }
   };
 
@@ -491,6 +525,8 @@ export const AgentPanel = memo(function AgentPanel({ docId, username, ydoc }: Ag
       const writerMsg = writerMsgs[writerMsgs.length - 1];
       const text = writerMsg?.content ?? '';
       if (!text) throw new Error('带水印生成未返回正文');
+      // 以服务端真实标记为准: 水印链路失败时后端会回退纯 LLM 并置 false
+      const isWm = Boolean(writerMsg?.watermarked);
       appendThread('writer', [
         {
           id: writerMsg!.id,
@@ -498,16 +534,20 @@ export const AgentPanel = memo(function AgentPanel({ docId, username, ydoc }: Ag
           agentType: AgentType.WRITER,
           content: text,
           createdAt: writerMsg!.createdAt ?? new Date().toISOString(),
-          watermarked: true,
+          watermarked: isWm,
         },
       ]);
       setWritingText(text);
-      setWritingWatermarked(true);
+      setWritingWatermarked(isWm);
       setWritingEditMode(false);
       // 内容已变化: 需重新写入文档
       setDocWritten(false);
       setWrittenSnapshot('');
-      setWriteMsg('🔵 带水印版本已生成，可预览/编辑后写入文档');
+      setWriteMsg(
+        isWm
+          ? '🔵 带水印版本已生成，可预览/编辑后写入文档'
+          : '⚠️ 水印注入未生效（已回退纯 LLM 正文），请重试或检查 LLM 配置'
+      );
     } catch (e) {
       if (docIdRef.current !== requestDocId) return;
       setError(e instanceof Error ? e.message : '带水印生成失败');
@@ -521,6 +561,8 @@ export const AgentPanel = memo(function AgentPanel({ docId, username, ydoc }: Ag
    * 结构化 Markdown 插入 (标题/参考文献/正文按真实排版渲染, AI 蓝色标记)。
    */
   const handleWriteToDoc = (textOverride?: string): boolean => {
+    // 仅 WRITE_DONE 可写入; 水印生成中 writingText 即将被替换, 禁止写半成品
+    if (stage !== 'write_done' || wmBusy) return false;
     const text = (textOverride ?? writingText).trim();
     if (!text) {
       setWriteMsg('⚠️ 正文为空，无法写入文档');
@@ -549,6 +591,7 @@ export const AgentPanel = memo(function AgentPanel({ docId, username, ydoc }: Ag
   /** ④/⑥ 审核步骤: 只运行审核 Agent (规则红牌引擎), 完成后挂起等待用户 */
   const runReview = async (action: 'submit_review' | 'resubmit_review') => {
     const requestDocId = docId;
+    const epoch = epochRef.current;
     setError(null);
     setRewriteResult(null);
     setReview(null); // 重新审核时先隐藏旧卡片, 避免展示过期意见
@@ -568,13 +611,14 @@ export const AgentPanel = memo(function AgentPanel({ docId, username, ydoc }: Ag
       supervisor: AgentStatusEnum.RUNNING,
     });
     try {
-      // Writer -> 审核 数据传递: 审查对象 = 面板内用户最终确认的正文
-      // (可能已手动编辑), 显式传 text, 不受文档落库时序影响
+      // Writer -> 审核 数据传递: 审查对象 = 文档当前实际内容
+      // (含人工编辑/润色/自动重写), 直接读编辑器状态, 不依赖落库时序;
+      // 编辑器未就绪时才回退面板正文
       const editor = getCollabSession(requestDocId).editor;
-      const reviewText = writingText.trim()
-        ? writingText
-        : editor
-          ? docToMarkdown(editor.state.doc)
+      const reviewText = editor
+        ? docToMarkdown(editor.state.doc)
+        : writingText.trim()
+          ? writingText
           : undefined;
       const result = await reviewDocument(requestDocId, reviewText);
       if (docIdRef.current !== requestDocId) return;
@@ -593,7 +637,7 @@ export const AgentPanel = memo(function AgentPanel({ docId, username, ydoc }: Ag
         writer: AgentStatusEnum.COMPLETED,
         supervisor: AgentStatusEnum.COMPLETED,
       });
-      go('review_succeeded');
+      goIfCurrent('review_succeeded', requestDocId, epoch);
     } catch (e) {
       if (docIdRef.current !== requestDocId) return;
       setReviewMsg(e instanceof Error ? e.message : '审核失败，请稍后重试');
@@ -611,7 +655,7 @@ export const AgentPanel = memo(function AgentPanel({ docId, username, ydoc }: Ag
         writer: AgentStatusEnum.COMPLETED,
         supervisor: AgentStatusEnum.ERROR,
       });
-      go('review_failed'); // 回到 WRITE_DONE, 可修改后再次提交审核
+      goIfCurrent('review_failed', requestDocId, epoch); // 回到 WRITE_DONE, 可修改后再次提交审核
     }
   };
 
@@ -620,7 +664,7 @@ export const AgentPanel = memo(function AgentPanel({ docId, username, ydoc }: Ag
    * @param switchToReviewTab 从写作专家/审核导师点击时切到审核导师展示进度
    */
   const handleSubmitReview = (switchToReviewTab = true) => {
-    if (stage !== 'write_done' || busy) return;
+    if (stage !== 'write_done' || busy || wmBusy) return;
     if (!docWritten) {
       // 文档尚无本轮正文: 先写入用户确认的最终版本,
       // 保证流程末端的文档级 AIGC 检测与审核对象一致
@@ -641,6 +685,7 @@ export const AgentPanel = memo(function AgentPanel({ docId, username, ydoc }: Ag
   const handleConfirmDetect = async () => {
     if (stage !== 'review_done' || busy) return;
     const requestDocId = docId;
+    const epoch = epochRef.current;
     setError(null);
     if (!go('confirm_detect')) return;
     appendThread('review', [
@@ -652,8 +697,11 @@ export const AgentPanel = memo(function AgentPanel({ docId, username, ydoc }: Ag
       },
     ]);
     try {
-      // 审核 -> 检测: 检测对象 = Writer 生成正文所在文档 (每文档独立密钥口径)
-      const det = await detectDocumentWatermark(requestDocId);
+      // 审核 -> 检测: 检测对象 = 文档当前实际内容 (与审核对象保持一致);
+      // 直接读编辑器状态, 不受防抖落库延迟影响
+      const editor = getCollabSession(requestDocId).editor;
+      const detectText = editor ? docToMarkdown(editor.state.doc) : writingText;
+      const det = await detectDocumentWatermark(requestDocId, detectText);
       if (docIdRef.current !== requestDocId) return;
       setDetection(det);
       appendThread('review', [
@@ -674,7 +722,7 @@ export const AgentPanel = memo(function AgentPanel({ docId, username, ydoc }: Ag
         writer: AgentStatusEnum.COMPLETED,
         supervisor: AgentStatusEnum.COMPLETED,
       });
-      go('detect_succeeded');
+      goIfCurrent('detect_succeeded', requestDocId, epoch);
     } catch (e) {
       if (docIdRef.current !== requestDocId) return;
       setError(
@@ -691,7 +739,7 @@ export const AgentPanel = memo(function AgentPanel({ docId, username, ydoc }: Ag
           createdAt: new Date().toISOString(),
         },
       ]);
-      go('detect_failed'); // 回退到 REVIEW_DONE 可重试
+      goIfCurrent('detect_failed', requestDocId, epoch); // 回退到 REVIEW_DONE 可重试
     }
   };
 
@@ -714,7 +762,9 @@ export const AgentPanel = memo(function AgentPanel({ docId, username, ydoc }: Ag
 
   /** 审稿卡片「润色该段」: 对指定段落调用写稿人润色并原地替换 (AI 蓝色标记) */
   const handlePolishParagraph = async (paraIndex: number) => {
-    if (polishingPara !== null) return;
+    if (stage !== 'review_done' || polishingPara !== null) return;
+    const requestDocId = docId;
+    const epoch = epochRef.current;
     const block = getBlockAt(paraIndex);
     if (!block || !block.text.trim()) {
       setReviewMsg(`⚠️ 第 ${paraIndex} 段为空或不存在，无法润色`);
@@ -723,15 +773,28 @@ export const AgentPanel = memo(function AgentPanel({ docId, username, ydoc }: Ag
     setPolishingPara(paraIndex);
     setReviewMsg(null);
     try {
-      const result = await polishText(docId, block.text);
+      const result = await polishText(requestDocId, block.text);
+      if (docIdRef.current !== requestDocId || epoch !== epochRef.current) {
+        return;
+      }
       if (!result.polished || result.polished === block.text) {
         setReviewMsg(`第 ${paraIndex} 段已符合规范，无需润色`);
         return;
       }
-      const editor = getCollabSession(docId).editor;
-      editor?.chain().focus()
-        .deleteRange({ from: block.from, to: block.to })
-        .insertContentAt(block.from, {
+      const editor = getCollabSession(requestDocId).editor;
+      if (!editor) {
+        setReviewMsg('⚠️ 编辑器未就绪，请稍后重试');
+        return;
+      }
+      // 请求期间可能发生协同编辑: 用最新文档重新定位该段, 避免旧偏移误删
+      const fresh = getBlockAt(paraIndex);
+      if (!fresh) {
+        setReviewMsg('⚠️ 该段已变化，请重新核对后再润色');
+        return;
+      }
+      editor.chain().focus()
+        .deleteRange({ from: fresh.from, to: fresh.to })
+        .insertContentAt(fresh.from, {
           type: 'paragraph',
           content: [
             {
@@ -742,6 +805,12 @@ export const AgentPanel = memo(function AgentPanel({ docId, username, ydoc }: Ag
           ],
         })
         .run();
+      // 文档已变: 同步面板正文, 避免后续审核/检测使用旧文本
+      const latest = docToMarkdown(editor.state.doc);
+      setWritingText(latest);
+      setWrittenSnapshot(latest);
+      setDocWritten(true);
+      setWriteMsg('✅ 文档已更新（含润色），可重新提交审核');
       setReviewMsg(
         `✅ 第 ${paraIndex} 段已润色（${result.stats.changeCount} 处变更，AI 蓝色标记）`
       );
@@ -754,13 +823,18 @@ export const AgentPanel = memo(function AgentPanel({ docId, username, ydoc }: Ag
 
   /** 审稿红牌 -> 自动重写: 规则修复全文红牌, 结果进入前后对比卡片 */
   const handleRewrite = async () => {
-    if (rewriting) return;
+    if (stage !== 'review_done' || rewriting) return;
+    const requestDocId = docId;
+    const epoch = epochRef.current;
     setRewriting(true);
     setReviewMsg(null);
     try {
-      const editor = getCollabSession(docId).editor;
+      const editor = getCollabSession(requestDocId).editor;
       const text = editor ? docToMarkdown(editor.state.doc) : undefined;
-      const result = await rewriteDocument(docId, text);
+      const result = await rewriteDocument(requestDocId, text);
+      if (docIdRef.current !== requestDocId || epoch !== epochRef.current) {
+        return;
+      }
       setRewriteResult(result);
       appendThread('review', [
         {
@@ -780,7 +854,7 @@ export const AgentPanel = memo(function AgentPanel({ docId, username, ydoc }: Ag
 
   /** 应用重写版本: 整篇替换为 AI 蓝色标记内容 (标题 + 段落结构) */
   const handleApplyRewrite = () => {
-    if (!rewriteResult) return;
+    if (stage !== 'review_done' || !rewriteResult) return;
     const editor = getCollabSession(docId).editor;
     if (!editor) return;
     // 复用与旧版一致的轻量 Markdown -> Tiptap JSON (标题 + 段落, author 标记)
@@ -816,6 +890,13 @@ export const AgentPanel = memo(function AgentPanel({ docId, username, ydoc }: Ag
     }
     flush();
     editor.commands.setContent(blocks, true);
+    // 文档已整篇替换: 同步面板正文并作废旧检测结果 (需重新审核/检测)
+    const latest = docToMarkdown(editor.state.doc);
+    setWritingText(latest);
+    setWrittenSnapshot(latest);
+    setDocWritten(true);
+    setDetection(null);
+    setWriteMsg('✅ 重写版本已应用到文档，请重新提交审核');
     setReviewMsg('✅ 重写版本已应用到文档（AI 蓝色标记），可重新审稿复查');
     setRewriteResult(null);
     setReview(null);
@@ -926,6 +1007,7 @@ export const AgentPanel = memo(function AgentPanel({ docId, username, ydoc }: Ag
           thread={threads.review}
           stage={stage}
           busy={busy}
+          wmBusy={wmBusy}
           manuscriptTitle={manuscriptTitle}
           review={review}
           reviewMsg={reviewMsg}

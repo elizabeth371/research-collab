@@ -489,20 +489,24 @@ async def writer_agent_node(state: State) -> Dict[str, Any]:
             if refs:
                 if want_watermark:
                     # 「带水印版本」: 流畅水印注入 (硬护栏 + 自适应强度)。
-                    # z 统计量随正文长度增长, 因此要求 1400+ 字以保证可检出。
+                    # z 统计量随正文长度增长, 因此正文要求 1400+ 字;
+                    # 通过 min_body_chars 覆盖默认的 300-600 字契约 (避免自相矛盾)。
                     from services.watermark_engine import load_document_engine
 
                     wm = await load_document_engine(state.get("doc_id"))
-                    wm_req = (
-                        extra_req + "\n正文不少于 1400 字，分 4-6 段。"
-                    ).strip()
-                    messages = llm_client.writer_messages(task, refs, wm_req)
+                    messages = llm_client.writer_messages(
+                        task, refs, extra_req, min_body_chars=1400
+                    )
                     draft = await wm.generate_watermarked_fluent(
                         llm_client, messages, max_tokens=3000
                     )
                     if draft:
-                        draft = _normalize_writer_markdown(draft, task)
-                        watermarked = True
+                        # 以最终文本重新检测: 结构规整/瑕疵修复后仍需达标
+                        normalized = _normalize_writer_markdown(draft, task)
+                        watermarked = bool(
+                            wm.detect_watermark(normalized).get("is_ai_generated")
+                        )
+                        draft = normalized
                     else:
                         # 水印链路失败 -> 回退纯 LLM (保证可用)
                         draft = await llm_client.write_writer_draft(

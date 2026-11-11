@@ -34,11 +34,26 @@ import hashlib
 import math
 import re
 import secrets
+import threading
+from collections import OrderedDict
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
 from config import settings
+
+# ---------------------------------------------------------------------------
+# 绿名单掩码全局 LRU (跨引擎共享)
+# ---------------------------------------------------------------------------
+# 每张掩码 = vocab_size 个 bool ≈ 64 KiB (65536)。历史实现按引擎实例缓存且
+# 上限 8192 条 (≈512 MiB/引擎), 多文档引擎缓存叠加可达数 GiB。掩码只取决于
+# (secret_key 摘要, hash_key, gamma, vocab_size, prev_token), 与引擎实例无关,
+# 因此改为进程级 LRU: 1024 条 ≈ 64 MiB 上限, 跨文档共享。
+_MASK_CACHE_MAX = 1024
+_GLOBAL_MASK_CACHE: "OrderedDict[Tuple[int, int, float, int, int], np.ndarray]" = (
+    OrderedDict()
+)
+_GLOBAL_MASK_LOCK = threading.Lock()
 
 # ---------------------------------------------------------------------------
 # 中文词级支持 (jieba): 惰性加载, 未安装时词级模式自动降级为字符级
@@ -101,9 +116,8 @@ class WatermarkEngine:
             )
         # 检测阈值: z-score > 4.0 判定为含水印 (论文建议的 5-sigma 近似)
         self.detection_threshold: float = 4.0
-        # 绿名单掩码缓存: 同一实例下 (prev_token, gamma, secret_key) 恒定,
-        # 避免对 65536 元素重复洗牌 —— 重采样每步要算多个候选, 缓存省 90%+ 时间
-        self._mask_cache: Dict[int, np.ndarray] = {}
+        # 绿名单掩码: 使用进程级全局 LRU (见 _GLOBAL_MASK_CACHE),
+        # 避免每引擎实例各缓存一套 64 KiB 掩码导致内存失控
         # 锚点模式共享掩码 (位置无关, 全文一张)
         self._anchor_mask_cache: Optional[np.ndarray] = None
         # 词 ID 缓存: 键为整段文本 (分段结果与密钥绑定, 按引擎实例隔离)
@@ -146,18 +160,25 @@ class WatermarkEngine:
         Returns:
             np.ndarray[bool] 形状 (vocab_size,), True 表示属于绿名单
         """
-        cached = self._mask_cache.get(prev_token)
-        if cached is not None and len(cached) == vocab_size:
+        key_digest = int.from_bytes(
+            hashlib.sha256(self.secret_key).digest()[:8], "big"
+        )
+        ck = (key_digest, self.hash_key, float(self.gamma), vocab_size, prev_token)
+        cached = _GLOBAL_MASK_CACHE.get(ck)
+        if cached is not None:
+            _GLOBAL_MASK_CACHE.move_to_end(ck)
             return cached
         rng = self._seed_rng(prev_token)
         permutation = rng.permutation(vocab_size)
         green_count = int(vocab_size * self.gamma)
         mask = np.zeros(vocab_size, dtype=bool)
         mask[permutation[:green_count]] = True
-        # 防御性上限: 缓存过大时整体清空 (正常中文文本远达不到)
-        if len(self._mask_cache) > 8192:
-            self._mask_cache.clear()
-        self._mask_cache[prev_token] = mask
+        # 进程级 LRU 上限: 超限淘汰最久未用 (内存有界, 不整体清空避免抖动)
+        with _GLOBAL_MASK_LOCK:
+            _GLOBAL_MASK_CACHE[ck] = mask
+            _GLOBAL_MASK_CACHE.move_to_end(ck)
+            while len(_GLOBAL_MASK_CACHE) > _MASK_CACHE_MAX:
+                _GLOBAL_MASK_CACHE.popitem(last=False)
         return mask
 
     # ------------------------------------------------------------------
@@ -438,12 +459,20 @@ class WatermarkEngine:
                 "model_name": self._model_name(),
             }
 
-        # 标准 Kirchenbauer 口径: 统计全部 token 对 (不去重)。
-        # 去重 (唯一 bigram) 会损失约 1/3 有效样本, 使正文水印难以达到
-        # z>4 的可检出水平; 对正常行文而言重复 bigram 不构成虚高来源
-        # (重复文本攻击的防护由鲁棒性实验单独评估)。
+        # 统计口径 (自适应):
+        #  - 正常行文: 全量 token 对 (标准 Kirchenbauer 口径; 去重会损失约 1/3
+        #    有效样本, 使正文水印难以达到 z>4 的可检出水平);
+        #  - 高重复文本 (表单/模板/重复条目, 唯一 bigram 占比 < 35%):
+        #    改用唯一 bigram 统计 —— 否则重复对会按 ~√N 放大 z,
+        #    把纯人类写的重复文本误判为 AI (实测重复登记表 z 可达 7)。
+        total_pairs = len(tokens) - 1
+        unique_pairs = len({(tokens[i - 1], tokens[i]) for i in range(1, len(tokens))})
+        dedup = total_pairs > 0 and (unique_pairs / total_pairs) < 0.35
         stats = self._score_sequence(
-            tokens, ignore_repeated_bigrams=False, text=text, mode=self.hash_mode
+            tokens,
+            ignore_repeated_bigrams=dedup,
+            text=text,
+            mode=self.hash_mode,
         )
 
         is_ai = stats["z_score"] > self.detection_threshold
@@ -459,6 +488,8 @@ class WatermarkEngine:
             "green_fraction": stats["green_fraction"],
             "num_tokens_scored": stats["num_tokens_scored"],
             "model_name": self._model_name(),
+            # 本次统计是否启用重复 bigram 去重 (高重复文本自适应)
+            "dedup_used": dedup,
         }
         # 双通道模式: 暴露分通道 z 供分析 (论文实验需要)
         if self.hash_mode == "dual_anchor":

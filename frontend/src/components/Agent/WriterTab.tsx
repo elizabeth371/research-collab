@@ -212,14 +212,14 @@ export function WriterTab({
             <div className="flex gap-1.5">
               <button
                 onClick={onWriteToDoc}
-                disabled={busy || !writingText.trim()}
+                disabled={busy || wmBusy || !writingText.trim()}
                 className={`flex-1 text-[11px] font-medium px-2 py-2 rounded-lg transition-colors ${theme.btnOutline}`}
               >
                 📄 写入文档（AI 蓝色标记）
               </button>
               <button
                 onClick={onSubmitReview}
-                disabled={busy}
+                disabled={busy || wmBusy}
                 className={`flex-1 text-[11px] font-medium px-2 py-2 rounded-lg transition-colors ${theme.btn}`}
               >
                 提交审核 → 移交审核导师

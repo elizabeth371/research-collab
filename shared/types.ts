@@ -178,8 +178,6 @@ export interface RobustnessResult {
 export interface DocumentWatermarkParams {
   gamma: number;
   delta: number;
-  /** 密钥 hex (32 字节 -> 64 字符) */
-  secret_key_hex: string;
   /** 密钥指纹 sha256 前 16 位 (身份标识, 不回传原始密钥) */
   key_fingerprint: string;
   updated_at: string;

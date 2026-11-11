@@ -158,3 +158,28 @@ def test_demo_generate_no_surrogate_chars():
     # 且水印仍可被检出 (屏蔽代理区不影响统计显著性)
     res = engine.detect_watermark(text)
     assert res["is_ai_generated"] is True
+
+
+def test_repeated_human_text_not_flagged():
+    """
+    回归 (审查 P1-3): 高重复的人类文本不得被误判为 AI。
+
+    背景: 检测改为全量 token 口径后, 重复 bigram 会按 ~√N 放大 z
+    (实测重复登记表可达 z≈7)。现对重复度高的文本自适应改用唯一
+    bigram 统计, 正常行文仍用全量口径。
+    """
+    engine = WatermarkEngine()
+    repeated = "本表用于登记姓名、性别、年龄、联系方式。" * 40
+    res = engine.detect_watermark(repeated)
+    assert res["dedup_used"] is True
+    assert res["is_ai_generated"] is False
+    assert abs(res["z_score"]) < 4.0
+
+    # 正常行文仍走全量口径 (不受去重影响)
+    normal = (
+        "音频水印技术通过在载体音频中嵌入不可感知的标识信息，实现版权保护、"
+        "内容认证与来源追踪。深度学习方法的引入为鲁棒性研究带来了新的路径，"
+        "同时也在不可感知性与抗攻击能力之间提出了新的权衡问题。"
+    )
+    res2 = engine.detect_watermark(normal)
+    assert res2["dedup_used"] is False

@@ -244,6 +244,8 @@ class LLMClient:
         user_topic: str,
         references: List[Dict[str, Any]],
         additional_requirements: str = "",
+        *,
+        min_body_chars: Optional[int] = None,
     ) -> List[Dict[str, str]]:
         """
         Writer 结构化生成的 prompt 消息组 (system + user)。
@@ -251,11 +253,22 @@ class LLMClient:
         输入契约: {user_topic, confirmed_literature, additional_requirements}。
         输出契约: Markdown 纯文本正文 —— 以 `# 标题` 开头, 随后
         `## 参考文献` (按 [1]、[2]… 逐条列出给定文献), 再 `## 正文`
-        (300-600 字, 行文中以 [n] 对应引用)。
+        (默认 300-600 字; min_body_chars 指定时改为"不少于 N 字",
+        用于带水印版本 —— 水印统计量 z ∝ √N, 需要更长的正文)。
         """
         topic = (user_topic or "").strip() or "AI 水印与版权溯源研究进展"
         ref_list = self._format_ref_list(references)
         extra = (additional_requirements or "").strip()
+        if min_body_chars:
+            body_len_rule = (
+                f"{int(min_body_chars)} 字以上, 分 4-6 段, 逻辑连贯、观点明确, "
+                "引用观点时使用 [n] 标注 (n 与参考文献编号对应);\n"
+            )
+        else:
+            body_len_rule = (
+                "300-600 字, 逻辑连贯、观点明确, "
+                "引用观点时使用 [n] 标注 (n 与参考文献编号对应);\n"
+            )
         prompt = (
             "请根据给定的研究主题与确认文献清单, 撰写一篇 Markdown 格式的"
             "中文学术文献综述。\n"
@@ -266,8 +279,7 @@ class LLMClient:
             "1. 第一行为一级标题 `# <标题>` (概括综述主题);\n"
             "2. 接着是 `## 参考文献` 小节: 按 `[1] 作者. \"标题.\" 来源 年份.`"
             "的格式逐条列出上述全部文献, 编号与确认文献一一对应;\n"
-            "3. 接着是 `## 正文` 小节: 300-600 字, 逻辑连贯、观点明确, "
-            "引用观点时使用 [n] 标注 (n 与参考文献编号对应);\n"
+            f"3. 接着是 `## 正文` 小节: {body_len_rule}"
             "4. 不得虚构确认文献清单之外的文献。\n"
         )
         if extra:

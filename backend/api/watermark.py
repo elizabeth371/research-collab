@@ -253,11 +253,10 @@ async def watermark_robustness(payload: RobustnessRequest) -> dict:
 # 步骤 12: 每文档独立水印参数 (密钥 / γ / δ)
 # ---------------------------------------------------------------------------
 class WatermarkParamsOut(BaseModel):
-    """文档水印参数 (密钥以 hex 与指纹形式返回, 不回传原始字节)"""
+    """文档水印参数 (只回传密钥指纹, 严禁回传密钥原文)"""
 
     gamma: float
     delta: float
-    secret_key_hex: str
     key_fingerprint: str
     updated_at: datetime
 
@@ -282,7 +281,6 @@ def _params_out(doc: Document) -> WatermarkParamsOut:
     return WatermarkParamsOut(
         gamma=doc.watermark_gamma,
         delta=doc.watermark_delta,
-        secret_key_hex=key.hex(),
         key_fingerprint=key_fingerprint(key),
         updated_at=doc.updated_at,
     )
@@ -364,9 +362,24 @@ async def update_document_watermark_params(
     return _params_out(doc)
 
 
+class DocumentDetectRequest(BaseModel):
+    """文档级水印检测请求体 (可选)
+
+    携带最新正文时以它作为检测对象: 正文经编辑器/Yjs 防抖落库,
+    "刚写入就检测" 可能读到旧版内容并误判为人类创作。
+    """
+
+    text: Optional[str] = Field(
+        default=None,
+        max_length=MAX_DETECT_TEXT_LENGTH,
+        description="最新正文; 省略时回退读取数据库中的 doc.content",
+    )
+
+
 @router.post("/documents/{doc_id}/detect", response_model=DetectResponse)
 async def detect_document_watermark(
     doc_id: uuid.UUID,
+    payload: Optional[DocumentDetectRequest] = None,
     db: AsyncSession = Depends(get_db),
 ) -> DetectResponse:
     """
@@ -391,9 +404,11 @@ async def detect_document_watermark(
         # 引擎按参数签名缓存, 掩码缓存跨请求复用
         effective_key = doc.watermark_key or settings.WATERMARK_SECRET_KEY
         engine = _document_detect_engine(doc)
+        # 优先使用请求携带的最新正文, 消除"写入尚未落库"的时序竞态
+        content = (payload.text if payload and payload.text else doc.content) or ""
         # CPU 密集检测放线程池, 避免长文档阻塞事件循环 (锁内等待无害:
         # 该锁本就用于串行化本文档的日志追加)
-        result = await asyncio.to_thread(engine.detect_watermark, doc.content or "")
+        result = await asyncio.to_thread(engine.detect_watermark, content)
         model_name = result.get("model_name") or "kirchenbauer-greenlist"
 
         # 1. 写入水印记录 (落库实际使用的文档密钥/参数, 供证据链还原)
@@ -422,7 +437,7 @@ async def detect_document_watermark(
             "is_ai_generated": result["is_ai_generated"],
             "confidence": result["confidence"],
             "watermark_chars": result["watermark_chars"],
-            "content_len": len(doc.content or ""),
+            "content_len": len(content),
             "gamma": engine.gamma,
             "delta": engine.delta,
             "key_fingerprint": key_fingerprint(effective_key),

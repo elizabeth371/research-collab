@@ -51,7 +51,6 @@ export const WatermarkPanel = memo(function WatermarkPanel({
   const [paramsSaving, setParamsSaving] = useState(false);
   const [paramsMsg, setParamsMsg] = useState<string | null>(null);
   const [paramsErr, setParamsErr] = useState<string | null>(null);
-  const [showKey, setShowKey] = useState(false);
 
   // ---- 版权证据包导出状态 (步骤 13) ----
   const [exporting, setExporting] = useState(false);
@@ -112,7 +111,6 @@ export const WatermarkPanel = memo(function WatermarkPanel({
     setWmParams(null);
     setParamsMsg(null);
     setParamsErr(null);
-    setShowKey(false);
     refreshParams(() => cancelled);
     return () => {
       cancelled = true;
@@ -266,19 +264,10 @@ export const WatermarkPanel = memo(function WatermarkPanel({
                 className="w-full accent-slate-700"
               />
             </div>
-            {/* 独立密钥 */}
-            <div>
-              <button
-                onClick={() => setShowKey((v) => !v)}
-                className="text-[10px] text-slate-500 hover:text-slate-700 underline underline-offset-2"
-              >
-                {showKey ? '隐藏密钥' : '显示密钥 (64 hex)'}
-              </button>
-              {showKey && (
-                <div className="mt-1 font-mono text-[10px] text-slate-500 bg-white rounded border border-slate-200 px-2 py-1.5 break-all select-all">
-                  {wmParams.secret_key_hex}
-                </div>
-              )}
+            {/* 独立密钥: 只展示指纹, 密钥原文永不回传前端 */}
+            <div className="rounded border border-slate-200 bg-white px-2 py-1.5 text-[10px] leading-relaxed text-slate-500">
+              本文件使用独立密钥（密钥原文仅保存在服务端，前端不可见），
+              外部可用上方指纹核对水印身份。
             </div>
             <div className="flex gap-1.5">
               <button
